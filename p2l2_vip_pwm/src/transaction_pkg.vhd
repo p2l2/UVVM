@@ -27,11 +27,10 @@ package transaction_pkg is
     FLUSH_COMMAND_QUEUE,
     FETCH_RESULT,
     INSERT_DELAY,
-    TERMINATE_CURRENT_COMMAND
+    TERMINATE_CURRENT_COMMAND,
     -- VVC local
-    --<USER_INPUT> Expand this type with enums for BFM procedures.
-    -- Example:
-    -- TRANSMIT, RECEIVE, EXPECT
+    -- Generator role ('generate' is a VHDL reserved word, hence GENERATE_PERIODS)
+    GENERATE_PERIODS, START, UPDATE, STOP, ABORT
   );
 
   --<USER_INPUT> Create constants for the maximum sizes to use in this VVC.

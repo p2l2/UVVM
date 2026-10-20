@@ -25,11 +25,8 @@ use work.transaction_pkg.all;
 --==========================================================================================
 entity pwm_vvc is
   generic (
-    --<USER_INPUT> Insert interface specific generic constants here
-    -- Example:
-    -- GC_ADDR_WIDTH                            : integer range 1 to C_VVC_CMD_ADDR_MAX_LENGTH;
-    -- GC_DATA_WIDTH                            : integer range 1 to C_VVC_CMD_DATA_MAX_LENGTH;
-    GC_INSTANCE_IDX                          : natural;
+    GC_INSTANCE_IDX                          : natural                   := 1;
+    GC_ROLE                                  : t_pwm_role                := GENERATOR; -- Fixed at elaboration
     GC_PWM_BFM_CONFIG                        : t_pwm_bfm_config          := C_PWM_BFM_CONFIG_DEFAULT;
     GC_CMD_QUEUE_COUNT_MAX                   : natural                   := C_CMD_QUEUE_COUNT_MAX;
     GC_CMD_QUEUE_COUNT_THRESHOLD             : natural                   := C_CMD_QUEUE_COUNT_THRESHOLD;
@@ -39,12 +36,8 @@ entity pwm_vvc is
     GC_RESULT_QUEUE_COUNT_THRESHOLD_SEVERITY : t_alert_level             := C_RESULT_QUEUE_COUNT_THRESHOLD_SEVERITY
   );
   port (
-    --<USER_INPUT> Insert BFM interface signals here
-    -- Example:
-    -- pwm_vvc_if                  : inout t_pwm_if := init_pwm_if_signals(GC_ADDR_WIDTH, GC_DATA_WIDTH);
-    -- VVC control signals:
-    -- rst                         : in std_logic; -- Optional VVC Reset
-    clk                         : in std_logic
+    -- GENERATOR: driven with the idle level from time 0 and the waveform. OBSERVER: always driven 'Z', only read.
+    pwm_vvc_if                  : inout std_logic := 'Z'
   );
 end entity pwm_vvc;
 
@@ -60,6 +53,26 @@ architecture behave of pwm_vvc is
   signal last_cmd_idx_executed              : natural := 0;
   signal terminate_current_cmd              : t_flag_record;
   signal entry_num_in_vvc_activity_register : integer;
+
+  -- Generator role: run state shared by the executor and p_waveform
+  type t_run_mode is (IDLE, BOUNDED, CONTINUOUS);
+  type t_run_request is record
+    idx         : natural;              -- incremented with every request
+    period      : time;
+    active_time : time;
+    num_periods : natural;              -- 0: continuous
+  end record t_run_request;
+  constant C_RUN_REQUEST_DEFAULT : t_run_request := (0, 0 ns, 0 ns, 0);
+
+  -- Executor -> p_waveform
+  signal start_req  : t_run_request := C_RUN_REQUEST_DEFAULT; -- GENERATE_PERIODS, START
+  signal update_req : t_run_request := C_RUN_REQUEST_DEFAULT; -- UPDATE, latched at the next period boundary
+  signal stop_req   : natural       := 0;                     -- incremented by STOP, checked at the period boundaries
+  signal abort_req  : boolean       := false;                 -- toggled by ABORT and terminate_current_command
+  -- p_waveform -> executor
+  signal run_mode   : t_run_mode    := IDLE;
+  signal start_ack  : natural       := 0; -- idx of the last start request whose first period has begun
+  signal update_ack : natural       := 0; -- idx of the last update request latched at a period boundary
 
   -- Instantiation of the element dedicated executor
   shared variable command_queue : work.td_cmd_queue_pkg.t_generic_queue;
@@ -190,8 +203,81 @@ begin
     variable v_command_is_bfm_access                  : boolean := false;
     variable v_prev_command_was_bfm_access            : boolean := false;
     variable v_msg_id_panel                           : t_msg_id_panel;
-    -- variable v_normalised_addr    : unsigned(GC_ADDR_WIDTH-1 downto 0) := (others => '0');
-    -- variable v_normalised_data    : std_logic_vector(GC_DATA_WIDTH-1 downto 0) := (others => '0');
+    variable v_request_idx                            : natural;
+
+    -- Wrong role: an ERROR, and the command is skipped (as I2C master commands in slave mode)
+    impure function role_is(
+      constant role : t_pwm_role
+    ) return boolean is
+    begin
+      if GC_ROLE /= role then
+        alert(ERROR, to_string(v_cmd.proc_call) & " called when VVC is in " & to_upper(to_string(GC_ROLE)) & " role." & format_msg(v_cmd), C_SCOPE);
+        return false;
+      end if;
+      return true;
+    end function;
+
+    -- Run-state error: a TB_ERROR, and the command is skipped
+    impure function run_mode_is(
+      constant expected : t_run_mode;
+      constant problem  : string
+    ) return boolean is
+    begin
+      if run_mode /= expected then
+        alert(TB_ERROR, to_string(v_cmd.proc_call) & "=> Failed. " & problem & format_msg(v_cmd), C_SCOPE);
+        return false;
+      end if;
+      return true;
+    end function;
+
+    -- Parameter check of GENERATE_PERIODS, START and UPDATE. Raises at most one TB_ERROR.
+    impure function parameters_are_valid(
+      constant check_num_periods : boolean;
+      constant check_jitter      : boolean
+    ) return boolean is
+      constant C_FAILED : string := to_string(v_cmd.proc_call) & "=> Failed. ";
+    begin
+      if v_cmd.period <= 0 ns then
+        alert(TB_ERROR, C_FAILED & "period must be > 0 ns, was " & to_string(v_cmd.period, ns) & "." & format_msg(v_cmd), C_SCOPE);
+      elsif v_cmd.active_time < 0 ns then
+        alert(TB_ERROR, C_FAILED & "active_time must be >= 0 ns, was " & to_string(v_cmd.active_time, ns) & "." & format_msg(v_cmd), C_SCOPE);
+      elsif v_cmd.active_time > v_cmd.period then
+        alert(TB_ERROR, C_FAILED & "active_time (" & to_string(v_cmd.active_time, ns) & ") must not exceed period (" &
+              to_string(v_cmd.period, ns) & ")." & format_msg(v_cmd), C_SCOPE);
+      elsif check_num_periods and v_cmd.num_periods < 1 then
+        alert(TB_ERROR, C_FAILED & "num_periods must be >= 1, was " & to_string(v_cmd.num_periods) & "." & format_msg(v_cmd), C_SCOPE);
+      elsif check_jitter and vvc_config.bfm_config.jitter < 0 ns then
+        alert(TB_ERROR, C_FAILED & "config.jitter must be >= 0 ns, was " & to_string(vvc_config.bfm_config.jitter, ns) & "." &
+              format_msg(v_cmd), C_SCOPE);
+      else
+        return true;
+      end if;
+      return false;
+    end function;
+
+    -- Generator settings for the log
+    impure function config_to_string return string is
+    begin
+      return to_upper(to_string(vvc_config.bfm_config.polarity)) & ", " & to_upper(to_string(vvc_config.bfm_config.alignment)) & ", " &
+             to_upper(to_string(vvc_config.bfm_config.idle_level)) & ", jitter " & to_string(vvc_config.bfm_config.jitter, ns);
+    end function;
+
+    -- Starts a run in p_waveform and waits until its first period has begun
+    procedure start_run(
+      constant num_periods : natural
+    ) is
+    begin
+      v_request_idx := start_req.idx + 1;
+      start_req     <= (v_request_idx, v_cmd.period, v_cmd.active_time, num_periods);
+      wait until start_ack = v_request_idx;
+    end procedure;
+
+    -- Aborts the run in p_waveform: idle level at once
+    procedure abort_run is
+    begin
+      abort_req <= not abort_req;
+      wait until run_mode = IDLE;
+    end procedure;
 
   begin
 
@@ -220,10 +306,8 @@ begin
 
       -- Check if command is a BFM access
       v_prev_command_was_bfm_access := v_command_is_bfm_access; -- save for inter_bfm_delay
-      --<USER_INPUT> Replace this if statement with a check of the current v_cmd.operation, in order to set v_cmd_is_bfm_access to true if this is a BFM access command
-      -- Example:
-      -- if v_cmd.operation = WRITE or v_cmd.operation = READ or v_cmd.operation = CHECK or v_cmd.operation = POLL_UNTIL then
-      if true then  -- Replace this line with actual check
+      -- UPDATE, STOP and ABORT act on a running generation and are not delayed
+      if v_cmd.operation = GENERATE_PERIODS or v_cmd.operation = START then
         v_command_is_bfm_access := true;
       else
         v_command_is_bfm_access := false;
@@ -248,49 +332,49 @@ begin
         -- VVC dedicated operations
         --===================================
 
-        --<USER_INPUT>: Insert BFM procedure calls here
-        -- Example:
-        --   when WRITE =>
-        --     -- Set vvc transaction info
-        --     set_global_vvc_transaction_info(vvc_transaction_info_trigger, vvc_transaction_info, v_cmd, vvc_config, IN_PROGRESS, C_SCOPE);
+        -- Generator role. The waveform is driven by p_waveform; the executor only requests and awaits.
+        when GENERATE_PERIODS =>
+          if role_is(GENERATOR) and run_mode_is(IDLE, "Not allowed while a continuous generation is active.") and
+             parameters_are_valid(true, true) then
+            log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & " started (" & config_to_string & ")." & format_msg(v_cmd),
+                C_SCOPE, v_msg_id_panel);
+            start_run(v_cmd.num_periods);
+            wait until run_mode = IDLE or terminate_current_cmd.is_active = '1';
+            if run_mode /= IDLE then
+              abort_run;                -- terminate_current_command
+            end if;
+            log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & " completed." & format_msg(v_cmd), C_SCOPE, v_msg_id_panel);
+          end if;
 
-        --     v_normalised_addr := normalize_and_check(v_cmd.addr, v_normalised_addr, ALLOW_WIDER_NARROWER, "addr", "shared_vvc_cmd.addr", "pwm_write() called with too wide address. " & v_cmd.msg);
-        --     v_normalised_data := normalize_and_check(v_cmd.data, v_normalised_data, ALLOW_WIDER_NARROWER, "data", "shared_vvc_cmd.data", "pwm_write() called with too wide data. " & v_cmd.msg);
-        --     -- Call the corresponding procedure in the BFM package.
-        --     pwm_write(addr_value    => v_normalised_addr,
-        --               data_value    => v_normalised_data,
-        --               msg           => format_msg(v_cmd),
-        --               clk           => clk,
-        --               pwm_if        => pwm_vvc_if,
-        --               scope         => C_SCOPE,
-        --               msg_id_panel  => v_msg_id_panel,
-        --               config        => vvc_config.bfm_config);
+        when START =>
+          if role_is(GENERATOR) and run_mode_is(IDLE, "A continuous generation is already active.") and
+             parameters_are_valid(false, true) then
+            start_run(0);
+            log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & " started (" & config_to_string & ")." & format_msg(v_cmd),
+                C_SCOPE, v_msg_id_panel);
+          end if;
 
-        --     -- Update vvc transaction info
-        --     set_global_vvc_transaction_info(vvc_transaction_info_trigger, vvc_transaction_info, v_cmd, vvc_config, COMPLETED, C_SCOPE);
+        when UPDATE =>
+          if role_is(GENERATOR) and run_mode_is(CONTINUOUS, "No continuous generation is active.") and
+             parameters_are_valid(false, false) then
+            v_request_idx := update_req.idx + 1;
+            update_req    <= (v_request_idx, v_cmd.period, v_cmd.active_time, 0);
+            wait until update_ack = v_request_idx or run_mode = IDLE or terminate_current_cmd.is_active = '1';
+            log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & " took effect." & format_msg(v_cmd), C_SCOPE, v_msg_id_panel);
+          end if;
 
-        --  -- If the result from the BFM call is to be stored, e.g. in a read call, use the additional procedure illustrated in this read example
-        --   when READ =>
-        --     -- Set vvc_transaction_info
-        --     set_global_vvc_transaction_info(vvc_transaction_info_trigger, vvc_transaction_info, v_cmd, vvc_config, IN_PROGRESS, C_SCOPE);
+        when STOP =>
+          if role_is(GENERATOR) and run_mode_is(CONTINUOUS, "No continuous generation is active.") then
+            stop_req <= stop_req + 1;
+            wait until run_mode = IDLE or terminate_current_cmd.is_active = '1';
+            log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & " completed." & format_msg(v_cmd), C_SCOPE, v_msg_id_panel);
+          end if;
 
-        --     v_normalised_addr := normalize_and_check(v_cmd.addr, v_normalised_addr, ALLOW_WIDER_NARROWER, "addr", "shared_vvc_cmd.addr", "pwm_write() called with too wide address. " & v_cmd.msg);
-        --     -- Call the corresponding procedure in the BFM package.
-        --     pwm_read(addr_value    => v_normalised_addr,
-        --              data_value    => v_result,
-        --              msg           => format_msg(v_cmd),
-        --              clk           => clk,
-        --              pwm_if        => pwm_vvc_if,
-        --              scope         => C_SCOPE,
-        --              msg_id_panel  => v_msg_id_panel,
-        --              config        => vvc_config.bfm_config);
-
-        --     -- Store the result
-        --     work.td_vvc_entity_support_pkg.store_result(result_queue => result_queue,
-        --                                                 cmd_idx      => v_cmd.cmd_idx,
-        --                                                 result       => v_result);
-        --     -- Update vvc transaction info
-        --     set_global_vvc_transaction_info(vvc_transaction_info_trigger, vvc_transaction_info, v_cmd, v_result, COMPLETED, C_SCOPE);
+        when ABORT =>
+          if role_is(GENERATOR) and run_mode_is(CONTINUOUS, "No continuous generation is active.") then
+            abort_run;
+            log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & " completed." & format_msg(v_cmd), C_SCOPE, v_msg_id_panel);
+          end if;
 
         -- UVVM common operations
         --===================================
@@ -300,11 +384,9 @@ begin
             -- Delay specified using time
             wait until terminate_current_cmd.is_active = '1' for v_cmd.delay;
           else
-            -- Delay specified using integer
-            --<USER_INPUT> Uncomment if BFM has clock_period config
-            -- check_value(vvc_config.bfm_config.clock_period /= C_UNDEFINED_TIME, TB_ERROR, "Check that clock_period is configured when using insert_delay().",
-            --             C_SCOPE, ID_NEVER, v_msg_id_panel);
-            -- wait until terminate_current_cmd.is_active = '1' for v_cmd.gen_integer_array(0) * vvc_config.bfm_config.clock_period;
+            -- Delay specified using integer: there is no clock (A-03)
+            alert(TB_ERROR, "insert_delay() with a number of clock cycles is not supported, the PWM VVC has no clock. Use a time." &
+                  format_msg(v_cmd), C_SCOPE);
           end if;
 
         when others =>
@@ -334,6 +416,85 @@ begin
 
     end loop;
   end process p_cmd_executor;
+  --==========================================================================================
+
+  --==========================================================================================
+  -- Waveform generator (GENERATOR role)
+  -- - Drives the idle level from time 0 and runs the generation requested by the executor, period by period, so that
+  --   the executor stays free for UPDATE, STOP and ABORT during a continuous generation.
+  -- - Latches update_req and vvc_config.bfm_config at every period boundary.
+  -- OBSERVER role: drives 'Z' permanently.
+  --==========================================================================================
+  p_waveform : process
+    variable v_config         : t_pwm_bfm_config;
+    variable v_period         : time;
+    variable v_active_time    : time;
+    variable v_continuous     : boolean;
+    variable v_remaining      : natural;
+    variable v_update_idx     : natural := 0;
+    variable v_stop_idx       : natural := 0;
+    variable v_seed1          : positive;
+    variable v_seed2          : positive;
+    variable v_aborted        : boolean;
+    variable v_jitter_alerted : boolean;
+  begin
+    if GC_ROLE = OBSERVER then
+      pwm_vvc_if <= 'Z';
+      wait;
+    end if;
+
+    -- From the generic: vvc_config may not be set up yet at time 0
+    pwm_drive_idle(pwm_vvc_if, GC_PWM_BFM_CONFIG);
+
+    loop
+      wait on start_req;
+      v_period         := start_req.period;
+      v_active_time    := start_req.active_time;
+      v_continuous     := start_req.num_periods = 0;
+      v_remaining      := start_req.num_periods;
+      v_update_idx     := update_req.idx;
+      v_stop_idx       := stop_req;
+      v_config         := vvc_config.bfm_config;
+      -- Every run starts from the configured seeds, so it is reproducible
+      v_seed1          := v_config.jitter_seed1;
+      v_seed2          := v_config.jitter_seed2;
+      v_jitter_alerted := false;
+      if v_continuous then
+        run_mode <= CONTINUOUS;
+      else
+        run_mode <= BOUNDED;
+      end if;
+      start_ack <= start_req.idx;
+
+      loop
+        pwm_drive_period(v_period, v_active_time, pwm_vvc_if, v_config, v_seed1, v_seed2, abort_req, v_aborted);
+        exit when v_aborted;
+        if not v_continuous then
+          v_remaining := v_remaining - 1;
+          exit when v_remaining = 0;
+        end if;
+        exit when stop_req /= v_stop_idx;
+
+        -- Period boundary: latch a pending update and the config
+        if update_req.idx /= v_update_idx then
+          v_update_idx  := update_req.idx;
+          v_period      := update_req.period;
+          v_active_time := update_req.active_time;
+          update_ack    <= v_update_idx;
+        end if;
+        if vvc_config.bfm_config.jitter >= 0 ns then
+          v_config := vvc_config.bfm_config;
+        elsif not v_jitter_alerted then
+          alert(TB_ERROR, "config.jitter must be >= 0 ns, was " & to_string(vvc_config.bfm_config.jitter, ns) &
+                ". The generation continues with the previous config.", C_SCOPE);
+          v_jitter_alerted := true;
+        end if;
+      end loop;
+
+      pwm_drive_idle(pwm_vvc_if, vvc_config.bfm_config);
+      run_mode <= IDLE;
+    end loop;
+  end process p_waveform;
   --==========================================================================================
 
   --==========================================================================================

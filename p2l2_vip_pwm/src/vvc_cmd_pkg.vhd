@@ -26,12 +26,10 @@ package vvc_cmd_pkg is
   --==========================================================================================
   type t_vvc_cmd_record is record
     -- VVC dedicated fields
-    --<USER_INPUT> Insert all data types needed to transport data to the BFM here.
-    -- This includes data field, address field, constraints (e.g. timeout), etc.
-    -- Example:
-    -- data                      : std_logic_vector(C_VVC_CMD_DATA_MAX_LENGTH-1 downto 0);
-    -- max_receptions            : integer;
-    -- timeout                   : time;
+    period                    : time;    -- PWM period
+    active_time               : time;    -- Active time; duty and count/resolution are converted by the methods
+    duty                      : real;    -- Expected duty cycle (pwm_check_duty only)
+    num_periods               : integer; -- Number of periods (checked >= 1 by the executor)
     -- Common VVC fields  (Used by td_vvc_framework_common_methods_pkg procedures, and thus mandatory)
     operation                 : t_operation;
     proc_call                 : string(1 to C_VVC_CMD_STRING_MAX_LENGTH);
@@ -51,11 +49,10 @@ package vvc_cmd_pkg is
 
   constant C_VVC_CMD_DEFAULT : t_vvc_cmd_record := (
     -- VVC dedicated fields
-    --<USER_INPUT> Set the fields you added to the t_vvc_cmd_record above to their default value here
-    -- Example:
-    -- data                      => (others => '0'),
-    -- max_receptions            => 1,
-    -- timeout                   => 0 ns,
+    period                    => 0 ns,
+    active_time               => 0 ns,
+    duty                      => 0.0,
+    num_periods               => 0,
     -- Common VVC fields
     operation                 => NO_OPERATION,
     proc_call                 => (others => NUL),
