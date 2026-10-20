@@ -12,6 +12,7 @@ context uvvm_util.uvvm_util_context;
 library uvvm_vvc_framework;
 use uvvm_vvc_framework.ti_vvc_framework_support_pkg.all;
 
+use work.pwm_bfm_pkg.all;
 use work.transaction_pkg.all;
 
 --==========================================================================================
@@ -85,7 +86,8 @@ package vvc_cmd_pkg is
   -- - t_vvc_result includes the return value of the procedure in the BFM. It can also
   --   be defined as a record if multiple values shall be transported from the BFM
   --==========================================================================================
-  subtype  t_vvc_result is std_logic_vector(C_VVC_CMD_DATA_MAX_LENGTH - 1 downto 0);
+  -- Result of pwm_measure() (arch 7.2)
+  subtype t_vvc_result is t_pwm_measurement;
 
   type t_vvc_result_queue_element is record
     cmd_idx       : natural;   -- from UVVM handshake mechanism
@@ -115,22 +117,25 @@ package vvc_cmd_pkg is
   --==========================================================================================
   -- Procedures
   --==========================================================================================
-  --function to_string (
-  --  result : t_vvc_result
-  --) return string;
+  function to_string(
+    result : t_vvc_result
+  ) return string;
 
 end package vvc_cmd_pkg;
 
 package body vvc_cmd_pkg is
 
   -- Custom to_string overload needed when result is of a record type
-  --function to_string (
-  --  result : t_vvc_result
-  --) return string is
-  --begin
-  --  <USER_INPUT> Set the record fields from the t_vvc_result here
-  --   Example:
-  --   return to_string(result.data_array'length) & " Words";
-  --end function to_string;
+  function to_string(
+    result : t_vvc_result
+  ) return string is
+  begin
+    if result.is_constant then
+      return "constant level '" & to_string(result.constant_level) & "', duty " & to_string(result.duty_cycle, 6);
+    else
+      return "T " & to_string(result.period, ns) & ", t_on " & to_string(result.active_time, ns) & ", duty " &
+             to_string(result.duty_cycle, 6);
+    end if;
+  end function to_string;
 
 end package body vvc_cmd_pkg;

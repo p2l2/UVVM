@@ -196,7 +196,7 @@ begin
   p_cmd_executor : process is
     constant C_EXECUTOR_ID                            : natural := 0;
     variable v_cmd                                    : t_vvc_cmd_record;
-    -- variable v_result                              : t_vvc_result; -- See vvc_cmd_pkg
+    variable v_result                                 : t_vvc_result; -- See vvc_cmd_pkg
     variable v_timestamp_start_of_current_bfm_access  : time    := 0 ns;
     variable v_timestamp_start_of_last_bfm_access     : time    := 0 ns;
     variable v_timestamp_end_of_last_bfm_access       : time    := 0 ns;
@@ -279,6 +279,14 @@ begin
       wait until run_mode = IDLE;
     end procedure;
 
+    -- Transaction info of the current command
+    procedure set_transaction_info(
+      constant status : t_transaction_status
+    ) is
+    begin
+      set_global_vvc_transaction_info(vvc_transaction_info_trigger, vvc_transaction_info, v_cmd, vvc_config, status, C_SCOPE);
+    end procedure;
+
   begin
 
     -- 0. Initialize the process prior to first command
@@ -307,7 +315,8 @@ begin
       -- Check if command is a BFM access
       v_prev_command_was_bfm_access := v_command_is_bfm_access; -- save for inter_bfm_delay
       -- UPDATE, STOP and ABORT act on a running generation and are not delayed
-      if v_cmd.operation = GENERATE_PERIODS or v_cmd.operation = START then
+      if v_cmd.operation = GENERATE_PERIODS or v_cmd.operation = START or v_cmd.operation = MEASURE or
+         v_cmd.operation = CHECK or v_cmd.operation = CHECK_DUTY then
         v_command_is_bfm_access := true;
       else
         v_command_is_bfm_access := false;
@@ -336,6 +345,7 @@ begin
         when GENERATE_PERIODS =>
           if role_is(GENERATOR) and run_mode_is(IDLE, "Not allowed while a continuous generation is active.") and
              parameters_are_valid(true, true) then
+            set_transaction_info(IN_PROGRESS);
             log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & " started (" & config_to_string & ")." & format_msg(v_cmd),
                 C_SCOPE, v_msg_id_panel);
             start_run(v_cmd.num_periods);
@@ -344,36 +354,96 @@ begin
               abort_run;                -- terminate_current_command
             end if;
             log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & " completed." & format_msg(v_cmd), C_SCOPE, v_msg_id_panel);
+            set_transaction_info(COMPLETED);
           end if;
 
         when START =>
           if role_is(GENERATOR) and run_mode_is(IDLE, "A continuous generation is already active.") and
              parameters_are_valid(false, true) then
+            set_transaction_info(IN_PROGRESS);
             start_run(0);
             log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & " started (" & config_to_string & ")." & format_msg(v_cmd),
                 C_SCOPE, v_msg_id_panel);
+            set_transaction_info(COMPLETED);
           end if;
 
         when UPDATE =>
           if role_is(GENERATOR) and run_mode_is(CONTINUOUS, "No continuous generation is active.") and
              parameters_are_valid(false, false) then
+            set_transaction_info(IN_PROGRESS);
             v_request_idx := update_req.idx + 1;
             update_req    <= (v_request_idx, v_cmd.period, v_cmd.active_time, 0);
             wait until update_ack = v_request_idx or run_mode = IDLE or terminate_current_cmd.is_active = '1';
             log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & " took effect." & format_msg(v_cmd), C_SCOPE, v_msg_id_panel);
+            set_transaction_info(COMPLETED);
           end if;
 
         when STOP =>
           if role_is(GENERATOR) and run_mode_is(CONTINUOUS, "No continuous generation is active.") then
+            set_transaction_info(IN_PROGRESS);
             stop_req <= stop_req + 1;
             wait until run_mode = IDLE or terminate_current_cmd.is_active = '1';
             log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & " completed." & format_msg(v_cmd), C_SCOPE, v_msg_id_panel);
+            set_transaction_info(COMPLETED);
           end if;
 
         when ABORT =>
           if role_is(GENERATOR) and run_mode_is(CONTINUOUS, "No continuous generation is active.") then
+            set_transaction_info(IN_PROGRESS);
             abort_run;
             log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & " completed." & format_msg(v_cmd), C_SCOPE, v_msg_id_panel);
+            set_transaction_info(COMPLETED);
+          end if;
+
+        -- Observer role: the BFM procedures observe the line directly
+        when MEASURE =>
+          if role_is(OBSERVER) then
+            set_transaction_info(IN_PROGRESS);
+            pwm_measure(result       => v_result,
+                        msg          => format_msg(v_cmd),
+                        pwm          => pwm_vvc_if,
+                        terminate    => terminate_current_cmd.is_active,
+                        timeout      => v_cmd.timeout,
+                        scope        => C_SCOPE,
+                        msg_id_panel => v_msg_id_panel,
+                        config       => vvc_config.bfm_config);
+            work.td_vvc_entity_support_pkg.store_result(result_queue => result_queue,
+                                                        cmd_idx      => v_cmd.cmd_idx,
+                                                        result       => v_result);
+            set_global_vvc_transaction_info(vvc_transaction_info_trigger, vvc_transaction_info, v_cmd, v_result, COMPLETED, C_SCOPE);
+          end if;
+
+        when CHECK =>
+          if role_is(OBSERVER) then
+            set_transaction_info(IN_PROGRESS);
+            pwm_check(period       => v_cmd.period,
+                      active_time  => v_cmd.active_time,
+                      num_periods  => v_cmd.num_periods,
+                      msg          => format_msg(v_cmd),
+                      pwm          => pwm_vvc_if,
+                      terminate    => terminate_current_cmd.is_active,
+                      alert_level  => v_cmd.alert_level,
+                      timeout      => v_cmd.timeout,
+                      scope        => C_SCOPE,
+                      msg_id_panel => v_msg_id_panel,
+                      config       => vvc_config.bfm_config);
+            set_transaction_info(COMPLETED);
+          end if;
+
+        when CHECK_DUTY =>
+          if role_is(OBSERVER) then
+            set_transaction_info(IN_PROGRESS);
+            pwm_check_duty(duty         => v_cmd.duty,
+                           num_periods  => v_cmd.num_periods,
+                           msg          => format_msg(v_cmd),
+                           pwm          => pwm_vvc_if,
+                           terminate    => terminate_current_cmd.is_active,
+                           alert_level  => v_cmd.alert_level,
+                           timeout      => v_cmd.timeout,
+                           scope        => C_SCOPE,
+                           msg_id_panel => v_msg_id_panel,
+                           config       => vvc_config.bfm_config);
+            set_transaction_info(COMPLETED);
           end if;
 
         -- UVVM common operations

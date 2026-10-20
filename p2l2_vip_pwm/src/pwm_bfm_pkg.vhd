@@ -270,6 +270,47 @@ package pwm_bfm_pkg is
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
   );
 
+  -- Overloads with a terminate signal: terminate = '1' ends the observation at once, without an alert (logged with
+  -- ID_TERMINATE_CMD). pwm_measure() then returns C_PWM_MEASUREMENT_DEFAULT. Used by the VVC for
+  -- terminate_current_command, e.g. with timeout = 0 ns on a stuck line.
+  procedure pwm_measure(
+    variable result       : out t_pwm_measurement;
+    constant msg          : in string;
+    signal   pwm          : in std_logic;
+    signal   terminate    : in std_logic;
+    constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant scope        : in string           := C_BFM_SCOPE;
+    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
+    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
+  );
+
+  procedure pwm_check(
+    constant period       : in time;
+    constant active_time  : in time;
+    constant num_periods  : in integer;
+    constant msg          : in string;
+    signal   pwm          : in std_logic;
+    signal   terminate    : in std_logic;
+    constant alert_level  : in t_alert_level    := ERROR;
+    constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant scope        : in string           := C_BFM_SCOPE;
+    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
+    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
+  );
+
+  procedure pwm_check_duty(
+    constant duty         : in real;
+    constant num_periods  : in integer;
+    constant msg          : in string;
+    signal   pwm          : in std_logic;
+    signal   terminate    : in std_logic;
+    constant alert_level  : in t_alert_level    := ERROR;
+    constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant scope        : in string           := C_BFM_SCOPE;
+    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
+    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
+  );
+
 end package pwm_bfm_pkg;
 
 --==========================================================================================
@@ -446,43 +487,53 @@ package body pwm_bfm_pkg is
     end if;
   end procedure;
 
+  -- Termination of the observation procedures: 'terminate' = '1' ends the wait at once (terminated = true, no alert).
+  -- The overloads without a terminate signal pass 'pwm' as terminate with use_terminate = false: a signal parameter
+  -- needs a signal as actual, and waiting on pwm twice changes nothing.
+
   -- Waits for the next edge: a change of the valid level ('0'/'1') of pwm, for at most 'timeout' (0 ns = no limit).
   -- 'level' is the last valid level ('U' = none yet) and is updated. A change to any other value raises an alert at
   -- alert_level, except 'Z' when allow_z is true. timed_out is true if no edge came within the timeout.
   procedure await_edge(
-    signal   pwm         : in std_logic;
-    constant timeout     : in time;
-    constant allow_z     : in boolean;
-    constant alert_level : in t_alert_level;
-    constant proc_call   : in string;
-    constant msg         : in string;
-    constant scope       : in string;
-    variable level       : inout std_logic;
-    variable timed_out   : out boolean
+    signal   pwm           : in std_logic;
+    constant timeout       : in time;
+    constant allow_z       : in boolean;
+    constant alert_level   : in t_alert_level;
+    constant proc_call     : in string;
+    constant msg           : in string;
+    constant scope         : in string;
+    signal   terminate     : in std_logic;
+    constant use_terminate : in boolean;
+    variable level         : inout std_logic;
+    variable timed_out     : out boolean;
+    variable terminated    : out boolean
   ) is
     constant C_START : time := now;
   begin
-    timed_out := false;
+    timed_out  := false;
+    terminated := false;
     loop
-      if timeout = 0 ns then
-        wait on pwm;
-      elsif now - C_START >= timeout then
+      if use_terminate and terminate = '1' then
+        terminated := true;
+        return;
+      elsif timeout /= 0 ns and now - C_START >= timeout then
         timed_out := true;
         return;
-      else
-        wait on pwm for timeout - (now - C_START);
-        if not pwm'event then
-          timed_out := true;
-          return;
-        end if;
       end if;
-      if is_valid_level(pwm) then
-        if pwm /= level then
-          level := pwm;
-          return;
+      if timeout = 0 ns then
+        wait on pwm, terminate;
+      else
+        wait on pwm, terminate for timeout - (now - C_START);
+      end if;
+      if pwm'event then
+        if is_valid_level(pwm) then
+          if pwm /= level then
+            level := pwm;
+            return;
+          end if;
+        elsif not (allow_z and pwm = 'Z') then
+          alert(alert_level, proc_call & "=> Failed. Invalid level '" & to_string(pwm) & "' on the line." & add_msg_delimiter(msg), scope);
         end if;
-      elsif not (allow_z and pwm = 'Z') then
-        alert(alert_level, proc_call & "=> Failed. Invalid level '" & to_string(pwm) & "' on the line." & add_msg_delimiter(msg), scope);
       end if;
     end loop;
   end procedure;
@@ -490,26 +541,32 @@ package body pwm_bfm_pkg is
   -- Waits for the next active-going edge (A-15). Each edge on the way restarts the timeout. timed_out is true if the
   -- line did not change for the timeout; it then holds a constant level.
   procedure await_period_start(
-    signal   pwm         : in std_logic;
-    constant timeout     : in time;
-    constant alert_level : in t_alert_level;
-    constant proc_call   : in string;
-    constant msg         : in string;
-    constant scope       : in string;
-    constant config      : in t_pwm_bfm_config;
-    variable timed_out   : out boolean
+    signal   pwm           : in std_logic;
+    constant timeout       : in time;
+    constant alert_level   : in t_alert_level;
+    constant proc_call     : in string;
+    constant msg           : in string;
+    constant scope         : in string;
+    constant config        : in t_pwm_bfm_config;
+    signal   terminate     : in std_logic;
+    constant use_terminate : in boolean;
+    variable timed_out     : out boolean;
+    variable terminated    : out boolean
   ) is
-    variable v_level     : std_logic := 'U';
-    variable v_timed_out : boolean;
+    variable v_level      : std_logic := 'U';
+    variable v_timed_out  : boolean;
+    variable v_terminated : boolean;
   begin
     if is_valid_level(pwm) then
       v_level := pwm;
     end if;
     loop
-      await_edge(pwm, timeout, config.idle_level = IDLE_HIGH_Z, alert_level, proc_call, msg, scope, v_level, v_timed_out);
-      exit when v_timed_out or v_level = pwm_active_level(config);
+      await_edge(pwm, timeout, config.idle_level = IDLE_HIGH_Z, alert_level, proc_call, msg, scope, terminate, use_terminate, v_level,
+                 v_timed_out, v_terminated);
+      exit when v_timed_out or v_terminated or v_level = pwm_active_level(config);
     end loop;
-    timed_out := v_timed_out;
+    timed_out  := v_timed_out;
+    terminated := v_terminated;
   end procedure;
 
   -- Raises an alert if a pulse or gap is shorter than config.min_pulse_width
@@ -539,25 +596,34 @@ package body pwm_bfm_pkg is
   -- next active-going edge, each within the timeout. A timeout raises a missing-activity alert at
   -- config.timeout_severity and returns timed_out = true. 'period_info' is added to the alert messages.
   procedure measure_period(
-    signal   pwm         : in std_logic;
-    constant timeout     : in time;
-    constant alert_level : in t_alert_level;
-    constant period_info : in string;
-    constant proc_call   : in string;
-    constant msg         : in string;
-    constant scope       : in string;
-    constant config      : in t_pwm_bfm_config;
-    variable period      : out time;
-    variable active_time : out time;
-    variable timed_out   : out boolean
+    signal   pwm           : in std_logic;
+    constant timeout       : in time;
+    constant alert_level   : in t_alert_level;
+    constant period_info   : in string;
+    constant proc_call     : in string;
+    constant msg           : in string;
+    constant scope         : in string;
+    constant config        : in t_pwm_bfm_config;
+    signal   terminate     : in std_logic;
+    constant use_terminate : in boolean;
+    variable period        : out time;
+    variable active_time   : out time;
+    variable timed_out     : out boolean;
+    variable terminated    : out boolean
   ) is
-    constant C_START     : time := now;
-    variable v_level     : std_logic := pwm_active_level(config);
-    variable v_inactive  : time;
-    variable v_timed_out : boolean;
+    constant C_START      : time := now;
+    variable v_level      : std_logic := pwm_active_level(config);
+    variable v_inactive   : time;
+    variable v_timed_out  : boolean;
+    variable v_terminated : boolean;
   begin
-    await_edge(pwm, timeout, false, alert_level, proc_call, msg, scope, v_level, v_timed_out);
-    if v_timed_out then
+    timed_out  := false;
+    terminated := false;
+    await_edge(pwm, timeout, false, alert_level, proc_call, msg, scope, terminate, use_terminate, v_level, v_timed_out, v_terminated);
+    if v_terminated then
+      terminated := true;
+      return;
+    elsif v_timed_out then
       alert(config.timeout_severity, proc_call & "=> Failed. Missing activity" & period_info & ": no inactive-going edge within " &
             to_string(timeout, ns) & " after the active-going edge at " & to_string(C_START, ns) & "." & add_msg_delimiter(msg), scope);
       timed_out := true;
@@ -566,8 +632,11 @@ package body pwm_bfm_pkg is
     v_inactive := now;
     check_min_pulse_width(v_inactive - C_START, true, now, alert_level, proc_call, msg, scope, config);
 
-    await_edge(pwm, timeout, false, alert_level, proc_call, msg, scope, v_level, v_timed_out);
-    if v_timed_out then
+    await_edge(pwm, timeout, false, alert_level, proc_call, msg, scope, terminate, use_terminate, v_level, v_timed_out, v_terminated);
+    if v_terminated then
+      terminated := true;
+      return;
+    elsif v_timed_out then
       alert(config.timeout_severity, proc_call & "=> Failed. Missing activity" & period_info & ": no active-going edge within " &
             to_string(timeout, ns) & " after the inactive-going edge at " & to_string(v_inactive, ns) & "." & add_msg_delimiter(msg), scope);
       timed_out := true;
@@ -577,35 +646,44 @@ package body pwm_bfm_pkg is
 
     period      := now - C_START;
     active_time := v_inactive - C_START;
-    timed_out   := false;
   end procedure;
 
   -- Checks that the line holds 'expected' (0 % or 100 %) without any change for 'window'. Raises at most one alert and
   -- returns at the first violation.
   procedure check_constant_level(
-    constant expected     : in std_logic;
-    constant window       : in time;
-    constant alert_level  : in t_alert_level;
-    constant proc_call    : in string;
-    constant msg          : in string;
-    signal   pwm          : in std_logic;
-    constant scope        : in string;
-    constant msg_id_panel : in t_msg_id_panel;
-    constant config       : in t_pwm_bfm_config
+    constant expected      : in std_logic;
+    constant window        : in time;
+    constant alert_level   : in t_alert_level;
+    constant proc_call     : in string;
+    constant msg           : in string;
+    signal   pwm           : in std_logic;
+    constant scope         : in string;
+    constant msg_id_panel  : in t_msg_id_panel;
+    constant config        : in t_pwm_bfm_config;
+    signal   terminate     : in std_logic;
+    constant use_terminate : in boolean;
+    variable terminated    : out boolean
   ) is
     constant C_START : time := now;
   begin
+    terminated := false;
     if pwm /= expected then
       alert(alert_level, proc_call & "=> Failed. Expected the constant level '" & to_string(expected) & "', the line was '" &
             to_string(pwm) & "'." & add_msg_delimiter(msg), scope);
       return;
     end if;
-    wait on pwm for window;
-    if pwm'event then
-      alert(alert_level, proc_call & "=> Failed. Expected the constant level '" & to_string(expected) & "' for " & to_string(window, ns) &
-            ", the line changed to '" & to_string(pwm) & "' after " & to_string(now - C_START, ns) & "." & add_msg_delimiter(msg), scope);
-      return;
-    end if;
+    while now - C_START < window loop
+      if use_terminate and terminate = '1' then
+        terminated := true;
+        return;
+      end if;
+      wait on pwm, terminate for window - (now - C_START);
+      if pwm'event then
+        alert(alert_level, proc_call & "=> Failed. Expected the constant level '" & to_string(expected) & "' for " & to_string(window, ns) &
+              ", the line changed to '" & to_string(pwm) & "' after " & to_string(now - C_START, ns) & "." & add_msg_delimiter(msg), scope);
+        return;
+      end if;
+    end loop;
     log(config.id_for_bfm, proc_call & "=> OK, constant level '" & to_string(expected) & "' for " & to_string(window, ns) & "." &
         add_msg_delimiter(msg), scope, msg_id_panel);
   end procedure;
@@ -622,21 +700,25 @@ package body pwm_bfm_pkg is
 
   -- Checks num_periods consecutive periods: period and active_time, or the duty cycle if check_duty is true
   procedure check_periods(
-    constant period       : in time;
-    constant active_time  : in time;
-    constant duty         : in real;
-    constant check_duty   : in boolean;
-    constant num_periods  : in positive;
-    constant timeout      : in time;
-    constant alert_level  : in t_alert_level;
-    constant proc_call    : in string;
-    constant msg          : in string;
-    signal   pwm          : in std_logic;
-    constant scope        : in string;
-    constant msg_id_panel : in t_msg_id_panel;
-    constant config       : in t_pwm_bfm_config
+    constant period        : in time;
+    constant active_time   : in time;
+    constant duty          : in real;
+    constant check_duty    : in boolean;
+    constant num_periods   : in positive;
+    constant timeout       : in time;
+    constant alert_level   : in t_alert_level;
+    constant proc_call     : in string;
+    constant msg           : in string;
+    signal   pwm           : in std_logic;
+    constant scope         : in string;
+    constant msg_id_panel  : in t_msg_id_panel;
+    constant config        : in t_pwm_bfm_config;
+    signal   terminate     : in std_logic;
+    constant use_terminate : in boolean;
+    variable terminated    : out boolean
   ) is
     variable v_timed_out   : boolean;
+    variable v_terminated  : boolean;
     variable v_period      : time;
     variable v_active_time : time;
     variable v_duty        : real;
@@ -644,8 +726,12 @@ package body pwm_bfm_pkg is
     variable v_active_ok   : boolean;
     variable v_num_failed  : natural := 0;
   begin
-    await_period_start(pwm, timeout, alert_level, proc_call, msg, scope, config, v_timed_out);
-    if v_timed_out then
+    terminated := false;
+    await_period_start(pwm, timeout, alert_level, proc_call, msg, scope, config, terminate, use_terminate, v_timed_out, v_terminated);
+    if v_terminated then
+      terminated := true;
+      return;
+    elsif v_timed_out then
       alert(config.timeout_severity, proc_call & "=> Failed. Missing activity: no edge within " & to_string(timeout, ns) &
             " (line at '" & to_string(pwm) & "')." & add_msg_delimiter(msg), scope);
       return;
@@ -653,8 +739,11 @@ package body pwm_bfm_pkg is
 
     for i in 1 to num_periods loop
       measure_period(pwm, timeout, alert_level, " in period " & to_string(i) & "/" & to_string(num_periods), proc_call, msg, scope,
-                     config, v_period, v_active_time, v_timed_out);
-      if v_timed_out then
+                     config, terminate, use_terminate, v_period, v_active_time, v_timed_out, v_terminated);
+      if v_terminated then
+        terminated := true;
+        return;
+      elsif v_timed_out then
         return;
       end if;
       if check_duty then
@@ -950,14 +1039,29 @@ package body pwm_bfm_pkg is
                      scope, msg_id_panel, config);
   end procedure;
 
-  procedure pwm_measure(
-    variable result       : out t_pwm_measurement;
+  ---------------------------------------------------------------------------------
+  -- Internal: the observation procedures, with or without a terminate signal
+  ---------------------------------------------------------------------------------
+  procedure log_terminated(
+    constant proc_call    : in string;
     constant msg          : in string;
-    signal   pwm          : in std_logic;
-    constant timeout      : in time             := C_UNDEFINED_TIME;
-    constant scope        : in string           := C_BFM_SCOPE;
-    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
-    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
+    constant scope        : in string;
+    constant msg_id_panel : in t_msg_id_panel
+  ) is
+  begin
+    log(ID_TERMINATE_CMD, proc_call & "=> terminated." & add_msg_delimiter(msg), scope, msg_id_panel);
+  end procedure;
+
+  procedure measure_impl(
+    variable result        : out t_pwm_measurement;
+    constant msg           : in string;
+    signal   pwm           : in std_logic;
+    signal   terminate     : in std_logic;
+    constant use_terminate : in boolean;
+    constant timeout       : in time;
+    constant scope         : in string;
+    constant msg_id_panel  : in t_msg_id_panel;
+    constant config        : in t_pwm_bfm_config
   ) is
     constant C_PROC_NAME   : string := "pwm_measure()";
     constant C_TIMEOUT     : time   := resolve_timeout(timeout, 0 ns, config);
@@ -966,6 +1070,7 @@ package body pwm_bfm_pkg is
     variable v_period      : time;
     variable v_active_time : time;
     variable v_result      : t_pwm_measurement := C_PWM_MEASUREMENT_DEFAULT;
+    variable v_terminated  : boolean;
   begin
     result := C_PWM_MEASUREMENT_DEFAULT;
     check_observe_parameters(C_PROC_NAME, C_TIMEOUT, false, false, false, config, msg, scope, v_valid);
@@ -973,8 +1078,11 @@ package body pwm_bfm_pkg is
       return;
     end if;
 
-    await_period_start(pwm, C_TIMEOUT, ERROR, C_PROC_NAME, msg, scope, config, v_timed_out);
-    if v_timed_out then
+    await_period_start(pwm, C_TIMEOUT, ERROR, C_PROC_NAME, msg, scope, config, terminate, use_terminate, v_timed_out, v_terminated);
+    if v_terminated then
+      log_terminated(C_PROC_NAME, msg, scope, msg_id_panel);
+      return;
+    elsif v_timed_out then
       -- No edge within the timeout: a constant level (spec 5.2), reported as result
       v_result.is_constant    := true;
       v_result.constant_level := pwm;
@@ -989,8 +1097,12 @@ package body pwm_bfm_pkg is
       return;
     end if;
 
-    measure_period(pwm, C_TIMEOUT, ERROR, "", C_PROC_NAME, msg, scope, config, v_period, v_active_time, v_timed_out);
-    if v_timed_out then
+    measure_period(pwm, C_TIMEOUT, ERROR, "", C_PROC_NAME, msg, scope, config, terminate, use_terminate, v_period, v_active_time,
+                   v_timed_out, v_terminated);
+    if v_terminated then
+      log_terminated(C_PROC_NAME, msg, scope, msg_id_panel);
+      return;
+    elsif v_timed_out then
       return;
     end if;
     v_result.period      := v_period;
@@ -1001,23 +1113,26 @@ package body pwm_bfm_pkg is
         to_string(v_result.duty_cycle, 6) & "." & add_msg_delimiter(msg), scope, msg_id_panel);
   end procedure;
 
-  procedure pwm_check(
-    constant period       : in time;
-    constant active_time  : in time;
-    constant num_periods  : in integer;
-    constant msg          : in string;
-    signal   pwm          : in std_logic;
-    constant alert_level  : in t_alert_level    := ERROR;
-    constant timeout      : in time             := C_UNDEFINED_TIME;
-    constant scope        : in string           := C_BFM_SCOPE;
-    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
-    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
+  procedure check_impl(
+    constant period        : in time;
+    constant active_time   : in time;
+    constant num_periods   : in integer;
+    constant msg           : in string;
+    signal   pwm           : in std_logic;
+    signal   terminate     : in std_logic;
+    constant use_terminate : in boolean;
+    constant alert_level   : in t_alert_level;
+    constant timeout       : in time;
+    constant scope         : in string;
+    constant msg_id_panel  : in t_msg_id_panel;
+    constant config        : in t_pwm_bfm_config
   ) is
     constant C_PROC_NAME : string  := "pwm_check(" & to_string(period, ns) & ", " & to_string(active_time, ns) & ", " &
                                       to_string(num_periods) & ")";
     constant C_CONSTANT  : boolean := active_time = 0 ns or active_time = period;
     constant C_TIMEOUT   : time    := resolve_timeout(timeout, period, config);
     variable v_valid     : boolean;
+    variable v_terminated : boolean;
   begin
     if period <= 0 ns then
       alert(TB_ERROR, C_PROC_NAME & "=> Failed. period must be > 0 ns, was " & to_string(period, ns) & "." & add_msg_delimiter(msg), scope);
@@ -1039,30 +1154,38 @@ package body pwm_bfm_pkg is
     end if;
 
     if active_time = 0 ns then
-      check_constant_level(pwm_inactive_level(config), C_TIMEOUT, alert_level, C_PROC_NAME, msg, pwm, scope, msg_id_panel, config);
+      check_constant_level(pwm_inactive_level(config), C_TIMEOUT, alert_level, C_PROC_NAME, msg, pwm, scope, msg_id_panel, config, terminate,
+                           use_terminate, v_terminated);
     elsif active_time = period then
-      check_constant_level(pwm_active_level(config), C_TIMEOUT, alert_level, C_PROC_NAME, msg, pwm, scope, msg_id_panel, config);
+      check_constant_level(pwm_active_level(config), C_TIMEOUT, alert_level, C_PROC_NAME, msg, pwm, scope, msg_id_panel, config, terminate,
+                           use_terminate, v_terminated);
     else
       check_periods(period, active_time, 0.0, false, num_periods, C_TIMEOUT, alert_level, C_PROC_NAME, msg, pwm, scope,
-                    msg_id_panel, config);
+                    msg_id_panel, config, terminate, use_terminate, v_terminated);
+    end if;
+    if v_terminated then
+      log_terminated(C_PROC_NAME, msg, scope, msg_id_panel);
     end if;
   end procedure;
 
-  procedure pwm_check_duty(
-    constant duty         : in real;
-    constant num_periods  : in integer;
-    constant msg          : in string;
-    signal   pwm          : in std_logic;
-    constant alert_level  : in t_alert_level    := ERROR;
-    constant timeout      : in time             := C_UNDEFINED_TIME;
-    constant scope        : in string           := C_BFM_SCOPE;
-    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
-    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
+  procedure check_duty_impl(
+    constant duty          : in real;
+    constant num_periods   : in integer;
+    constant msg           : in string;
+    signal   pwm           : in std_logic;
+    signal   terminate     : in std_logic;
+    constant use_terminate : in boolean;
+    constant alert_level   : in t_alert_level;
+    constant timeout       : in time;
+    constant scope         : in string;
+    constant msg_id_panel  : in t_msg_id_panel;
+    constant config        : in t_pwm_bfm_config
   ) is
     constant C_PROC_NAME : string  := "pwm_check_duty(" & to_string(duty, 6) & ", " & to_string(num_periods) & ")";
     constant C_CONSTANT  : boolean := duty = 0.0 or duty = 1.0;
     constant C_TIMEOUT   : time    := resolve_timeout(timeout, 0 ns, config);
     variable v_valid     : boolean;
+    variable v_terminated : boolean;
   begin
     if duty < 0.0 or duty > 1.0 then
       alert(TB_ERROR, C_PROC_NAME & "=> Failed. duty must be within 0.0 to 1.0." & add_msg_delimiter(msg), scope);
@@ -1077,12 +1200,112 @@ package body pwm_bfm_pkg is
     end if;
 
     if duty = 0.0 then
-      check_constant_level(pwm_inactive_level(config), C_TIMEOUT, alert_level, C_PROC_NAME, msg, pwm, scope, msg_id_panel, config);
+      check_constant_level(pwm_inactive_level(config), C_TIMEOUT, alert_level, C_PROC_NAME, msg, pwm, scope, msg_id_panel, config, terminate,
+                           use_terminate, v_terminated);
     elsif duty = 1.0 then
-      check_constant_level(pwm_active_level(config), C_TIMEOUT, alert_level, C_PROC_NAME, msg, pwm, scope, msg_id_panel, config);
+      check_constant_level(pwm_active_level(config), C_TIMEOUT, alert_level, C_PROC_NAME, msg, pwm, scope, msg_id_panel, config, terminate,
+                           use_terminate, v_terminated);
     else
-      check_periods(0 ns, 0 ns, duty, true, num_periods, C_TIMEOUT, alert_level, C_PROC_NAME, msg, pwm, scope, msg_id_panel, config);
+      check_periods(0 ns, 0 ns, duty, true, num_periods, C_TIMEOUT, alert_level, C_PROC_NAME, msg, pwm, scope, msg_id_panel, config,
+                    terminate, use_terminate, v_terminated);
     end if;
+    if v_terminated then
+      log_terminated(C_PROC_NAME, msg, scope, msg_id_panel);
+    end if;
+  end procedure;
+
+  ---------------------------------------------------------------------------------
+  -- Observation procedures
+  ---------------------------------------------------------------------------------
+  procedure pwm_measure(
+    variable result       : out t_pwm_measurement;
+    constant msg          : in string;
+    signal   pwm          : in std_logic;
+    constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant scope        : in string           := C_BFM_SCOPE;
+    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
+    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
+  ) is
+  begin
+    measure_impl(result, msg, pwm, pwm, false, timeout, scope, msg_id_panel, config);
+  end procedure;
+
+  procedure pwm_check(
+    constant period       : in time;
+    constant active_time  : in time;
+    constant num_periods  : in integer;
+    constant msg          : in string;
+    signal   pwm          : in std_logic;
+    constant alert_level  : in t_alert_level    := ERROR;
+    constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant scope        : in string           := C_BFM_SCOPE;
+    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
+    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
+  ) is
+  begin
+    check_impl(period, active_time, num_periods, msg, pwm, pwm, false, alert_level, timeout, scope, msg_id_panel, config);
+  end procedure;
+
+  procedure pwm_check_duty(
+    constant duty         : in real;
+    constant num_periods  : in integer;
+    constant msg          : in string;
+    signal   pwm          : in std_logic;
+    constant alert_level  : in t_alert_level    := ERROR;
+    constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant scope        : in string           := C_BFM_SCOPE;
+    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
+    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
+  ) is
+  begin
+    check_duty_impl(duty, num_periods, msg, pwm, pwm, false, alert_level, timeout, scope, msg_id_panel, config);
+  end procedure;
+
+  procedure pwm_measure(
+    variable result       : out t_pwm_measurement;
+    constant msg          : in string;
+    signal   pwm          : in std_logic;
+    signal   terminate    : in std_logic;
+    constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant scope        : in string           := C_BFM_SCOPE;
+    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
+    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
+  ) is
+  begin
+    measure_impl(result, msg, pwm, terminate, true, timeout, scope, msg_id_panel, config);
+  end procedure;
+
+  procedure pwm_check(
+    constant period       : in time;
+    constant active_time  : in time;
+    constant num_periods  : in integer;
+    constant msg          : in string;
+    signal   pwm          : in std_logic;
+    signal   terminate    : in std_logic;
+    constant alert_level  : in t_alert_level    := ERROR;
+    constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant scope        : in string           := C_BFM_SCOPE;
+    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
+    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
+  ) is
+  begin
+    check_impl(period, active_time, num_periods, msg, pwm, terminate, true, alert_level, timeout, scope, msg_id_panel, config);
+  end procedure;
+
+  procedure pwm_check_duty(
+    constant duty         : in real;
+    constant num_periods  : in integer;
+    constant msg          : in string;
+    signal   pwm          : in std_logic;
+    signal   terminate    : in std_logic;
+    constant alert_level  : in t_alert_level    := ERROR;
+    constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant scope        : in string           := C_BFM_SCOPE;
+    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
+    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
+  ) is
+  begin
+    check_duty_impl(duty, num_periods, msg, pwm, terminate, true, alert_level, timeout, scope, msg_id_panel, config);
   end procedure;
 
 end package body pwm_bfm_pkg;

@@ -30,18 +30,11 @@ package transaction_pkg is
     TERMINATE_CURRENT_COMMAND,
     -- VVC local
     -- Generator role ('generate' is a VHDL reserved word, hence GENERATE_PERIODS)
-    GENERATE_PERIODS, START, UPDATE, STOP, ABORT
+    GENERATE_PERIODS, START, UPDATE, STOP, ABORT,
+    -- Observer role
+    MEASURE, CHECK, CHECK_DUTY
   );
 
-  --<USER_INPUT> Create constants for the maximum sizes to use in this VVC.
-  -- You can create VVCs with smaller sizes than these constants, but not larger.
-  -- For example, given a VVC with parallel data bus and address bus, constraints
-  -- should be added for maximum data length and address length.
-  -- Note: if these constants are to be flexible, create similar constants in adaptations_pkg
-  -- and use them to assign these constants, see other UVVM VIPs for guidance on how it's done.
-  -- Example:
-  constant C_VVC_CMD_DATA_MAX_LENGTH   : natural := 32;
-  --constant C_VVC_CMD_ADDR_MAX_LENGTH   : natural := 32;
   constant C_VVC_CMD_STRING_MAX_LENGTH : natural := 300;
   constant C_VVC_MAX_INSTANCE_NUM      : natural := C_MAX_VVC_INSTANCE_NUM;
 
@@ -66,18 +59,20 @@ package transaction_pkg is
   -- Base transaction
   type t_base_transaction is record
     operation           : t_operation;
-    --<USER_INPUT> Insert transaction information here.
-    --address             : unsigned(C_VVC_CMD_ADDR_MAX_LENGTH-1 downto 0);
-    --data                : std_logic_vector(C_VVC_CMD_DATA_MAX_LENGTH-1 downto 0);
+    period              : time;    -- Generator: generated period; observer: expected period
+    active_time         : time;    -- Generator: generated active time; observer: expected active time
+    duty                : real;    -- CHECK_DUTY: expected duty cycle
+    num_periods         : integer; -- GENERATE_PERIODS, CHECK, CHECK_DUTY; 0 otherwise
     vvc_meta            : t_vvc_meta;
     transaction_status  : t_transaction_status;
   end record t_base_transaction;
 
   constant C_BASE_TRANSACTION_SET_DEFAULT : t_base_transaction := (
     operation           => NO_OPERATION,
-    --<USER_INPUT> Insert transaction information here.
-    --address             => (others => '0'),
-    --data                => (others => '0'),
+    period              => 0 ns,
+    active_time         => 0 ns,
+    duty                => 0.0,
+    num_periods         => 0,
     vvc_meta            => C_VVC_META_DEFAULT,
     transaction_status  => INACTIVE
   );
