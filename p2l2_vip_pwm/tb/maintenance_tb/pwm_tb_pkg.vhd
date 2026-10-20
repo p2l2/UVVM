@@ -62,6 +62,10 @@ package pwm_tb_pkg is
     constant idle_level : in t_pwm_idle_level) return std_logic;
 
   -- num_periods times the same period
+  -- Time in resolution units, as real (time / time is an integer and overflows above 2**31 units)
+  function tb_units(
+    constant value : in time) return real;
+
   function repeat_period(
     constant period      : in time;
     constant active_time : in time;
@@ -174,6 +178,14 @@ package body pwm_tb_pkg is
     end case;
   end function;
 
+  function tb_units(
+    constant value : in time) return real is
+    constant C_RESOLUTION : time    := std.env.resolution_limit;
+    constant C_NUM_NS     : integer := value / 1 ns;
+  begin
+    return real(C_NUM_NS) * real(1 ns / C_RESOLUTION) + real((value - C_NUM_NS * 1 ns) / C_RESOLUTION);
+  end function;
+
   function repeat_period(
     constant period      : in time;
     constant active_time : in time;
@@ -224,7 +236,7 @@ package body pwm_tb_pkg is
           segment(C_INACTIVE, v_off_time);
           segment(active, params(i).active_time);
         when CENTER_ALIGNED =>
-          v_first_gap := ((v_off_time / C_RESOLUTION) / 2) * C_RESOLUTION;
+          v_first_gap := v_off_time / 2; -- whole resolution units, rounded down
           segment(C_INACTIVE, v_first_gap);
           segment(active, params(i).active_time);
           segment(C_INACTIVE, v_off_time - v_first_gap);

@@ -117,7 +117,7 @@ begin
       constant count      : natural;
       constant resolution : positive) return time is
     begin
-      return ((2 * (period / C_RESOLUTION) * count + resolution) / (2 * resolution)) * C_RESOLUTION;
+      return (2 * count * period + resolution * C_RESOLUTION) / (2 * resolution);
     end function;
 
     -- Writes v_config to the generator VVC
@@ -291,7 +291,7 @@ begin
       constant period      : time;
       constant active_time : time;
       constant msg         : string) is
-      constant C_DUTY : real := real(active_time / C_RESOLUTION) / real(period / C_RESOLUTION);
+      constant C_DUTY : real := tb_units(active_time) / tb_units(period);
     begin
       check_value(v_result.is_constant, false, ERROR, "is_constant: " & msg, C_SCOPE, ID_NEVER);
       check_value(v_result.period, period, ERROR, "period: " & msg, C_SCOPE, ID_SEQUENCER_SUB);

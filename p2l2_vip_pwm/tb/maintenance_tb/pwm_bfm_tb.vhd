@@ -110,7 +110,6 @@ begin
     variable v_level  : std_logic;
     variable v_edges_a : t_edge_array(0 to 1999);
     variable v_edges_b : t_edge_array(0 to 1999);
-    variable v_edge    : t_edge;
     variable v_first   : time;
     variable v_last    : time;
     variable v_differs : boolean;
@@ -129,7 +128,7 @@ begin
       constant count      : natural;
       constant resolution : positive) return time is
     begin
-      return ((2 * (period / C_RESOLUTION) * count + resolution) / (2 * resolution)) * C_RESOLUTION;
+      return (2 * count * period + resolution * C_RESOLUTION) / (2 * resolution);
     end function;
 
     -- Starts a new edge log at the current time, with the line idle
@@ -304,7 +303,7 @@ begin
       constant period      : time;
       constant active_time : time;
       constant msg         : string) is
-      constant C_DUTY : real := real(active_time / C_RESOLUTION) / real(period / C_RESOLUTION);
+      constant C_DUTY : real := tb_units(active_time) / tb_units(period);
     begin
       check_value(v_result.is_constant, false, ERROR, "is_constant: " & msg, C_SCOPE, ID_NEVER);
       check_value(v_result.period, period, ERROR, "period: " & msg, C_SCOPE, ID_NEVER);
@@ -346,7 +345,7 @@ begin
       case v_config.alignment is
         when LEFT_ALIGNED   => v_first := 0 ns;
         when RIGHT_ALIGNED  => v_first := C_OFF_TIME;
-        when CENTER_ALIGNED => v_first := ((C_OFF_TIME / C_RESOLUTION) / 2) * C_RESOLUTION;
+        when CENTER_ALIGNED => v_first := C_OFF_TIME / 2; -- whole resolution units, rounded down
       end case;
       check_completion(v_first + period, msg);
       await_stimulus;
@@ -421,6 +420,16 @@ begin
       start_test;
       pwm_generate(10 * C_RESOLUTION, 1, 4, 2, "1/4 of 10 units", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       check_generated(repeat_period(10 * C_RESOLUTION, 3 * C_RESOLUTION, 2), "count 1/4 of 10 units: 2.5 rounds up to 3");
+      -- More than 2**31 resolution units in the period
+      start_test;
+      pwm_generate(4 ms, 1.0 / 3.0, 1, "D 1/3", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      check_generated(repeat_period(4 ms, rounded_units(4 ms, 1, 3), 1), "D 1/3 at T 4 ms");
+      start_test;
+      pwm_generate(4 ms, 1, 3, 1, "1/3", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      check_generated(repeat_period(4 ms, rounded_units(4 ms, 1, 3), 1), "count 1/3 at T 4 ms");
+      start_test;
+      pwm_generate(4 ms, 2, 3, 1, "2/3", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      check_generated(repeat_period(4 ms, rounded_units(4 ms, 2, 3), 1), "count 2/3 at T 4 ms");
       start_test;
       pwm_generate(10 ns, 0, 8, 2, "0/8", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       check_generated(repeat_period(10 ns, 0 ns, 2), "count 0/8");
@@ -628,7 +637,9 @@ begin
       v_config.jitter := 5 ns;
       test_jitter(100 ns, C_RESOLUTION, 500, "j 5 ns, t_on 1 unit");
       test_jitter(100 ns, 100 ns - C_RESOLUTION, 500, "j 5 ns, t_on T - 1 unit");
-      test_jitter(10 * C_RESOLUTION, 5 * C_RESOLUTION, 500, "j 5 ns, T 10 units");
+      -- 501 periods of 10 units end at a time stamp with more decimals than the log shows (ps and fs resolution)
+      increment_expected_alerts(TB_WARNING, 1, "log time stamp truncated");
+      test_jitter(10 * C_RESOLUTION, 5 * C_RESOLUTION, 501, "j 5 ns, T 10 units");
 
       log(ID_LOG_HDR, "TC-012: right- and center-aligned, active-low", C_SCOPE);
       for alignment in RIGHT_ALIGNED to CENTER_ALIGNED loop

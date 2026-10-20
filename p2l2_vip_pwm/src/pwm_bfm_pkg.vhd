@@ -341,12 +341,13 @@ package body pwm_bfm_pkg is
   ) return time is
     constant C_RESOLUTION : time := std.env.resolution_limit;
     constant C_HIGH_UNIT  : time := C_RESOLUTION * C_UNITS_SPLIT;
-    variable v_units      : real;
     variable v_high       : integer;
+    variable v_low        : real;
   begin
-    v_units := floor(num_units + 0.5);
-    v_high  := integer(floor(v_units / real(C_UNITS_SPLIT)));
-    return v_high * C_HIGH_UNIT + integer(v_units - real(v_high) * real(C_UNITS_SPLIT)) * C_RESOLUTION;
+    -- floor() only on values below 2**31: some math_real implementations (GHDL) return larger values unchanged
+    v_high := integer(floor(num_units / real(C_UNITS_SPLIT)));
+    v_low  := floor(num_units - real(v_high) * real(C_UNITS_SPLIT) + 0.5);
+    return v_high * C_HIGH_UNIT + integer(v_low) * C_RESOLUTION;
   end function;
 
   ---------------------------------------------------------------------------------
@@ -692,10 +693,10 @@ package body pwm_bfm_pkg is
     constant name      : in string;
     constant measured  : in time;
     constant expected  : in time;
-    constant tolerance : in time
+    constant tol       : in time
   ) return string is
   begin
-    return name & " was " & to_string(measured, ns) & ", expected " & to_string(expected, ns) & " +-" & to_string(tolerance, ns);
+    return name & " was " & to_string(measured, ns) & ", expected " & to_string(expected, ns) & " +-" & to_string(tol, ns);
   end function;
 
   -- Checks num_periods consecutive periods: period and active_time, or the duty cycle if check_duty is true
@@ -894,7 +895,7 @@ package body pwm_bfm_pkg is
         v_last          := 1;
       when CENTER_ALIGNED =>
         -- An odd number of resolution units in the off time: the extra unit goes to the second gap
-        v_first_gap := units_to_time(floor(time_to_units(C_OFF_TIME) / 2.0));
+        v_first_gap := C_OFF_TIME / 2; -- whole resolution units, rounded down
         v_ideal     := (0 ns, v_first_gap, v_first_gap + active_time);
         v_level     := C_INACTIVE & C_ACTIVE & C_INACTIVE;
         v_last      := 2;
