@@ -63,6 +63,12 @@ begin
     variable v_seed2  : positive;
     variable v_start  : time;
     variable v_level  : std_logic;
+    variable v_edges_a : t_edge_array(0 to 1999);
+    variable v_edges_b : t_edge_array(0 to 1999);
+    variable v_edge    : t_edge;
+    variable v_first   : time;
+    variable v_last    : time;
+    variable v_differs : boolean;
 
     -- Lets the last assignment to 'pwm' take effect and p_edge_logger record it
     procedure settle is
@@ -169,6 +175,34 @@ begin
       end loop;
       pwm_drive_idle(pwm, v_config);
       check_generated(params, msg);
+    end procedure;
+
+    -- TC-012: generates num_periods periods with jitter and checks them against the ideal (unjittered) edges
+    procedure test_jitter(
+      constant period      : time;
+      constant active_time : time;
+      constant num_periods : positive;
+      constant msg         : string) is
+    begin
+      start_test;
+      pwm_generate(period, active_time, num_periods, msg, pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      check_value(now, v_start + num_periods * period, ERROR, "completion time: " & msg, C_SCOPE, ID_SEQUENCER_SUB);
+      settle;
+      check_jittered_edges(edge_log, expected_edges(v_start, v_level, repeat_period(period, active_time, num_periods),
+                                                    v_config.alignment, tb_active_level(v_config.polarity),
+                                                    tb_idle_value(v_config.polarity, v_config.idle_level)),
+                           v_config.jitter, msg, C_SCOPE);
+    end procedure;
+
+    -- TC-012: the logged edges relative to v_start
+    procedure save_edges(
+      variable edges : out t_edge_array) is
+      variable v_edge : t_edge;
+    begin
+      for i in 0 to minimum(edge_log.count, edges'length) - 1 loop
+        v_edge := edge_log.get(i);
+        edges(edges'low + i) := (v_edge.time_stamp - v_start, v_edge.level);
+      end loop;
     end procedure;
 
     constant C_DUTY_SEQUENCE : t_period_param_array := ((10 ns, 5 ns), (10 ns, 0 ns), (10 ns, 5 ns), (10 ns, 10 ns), (10 ns, 5 ns));
@@ -408,6 +442,75 @@ begin
           test_generate(10 ns, 3 ns, 2, "idle after generate, " & to_string(polarity) & ", " & to_string(idle_level));
         end loop;
       end loop;
+
+    --============================================================================================================================
+    elsif GC_TESTCASE = "TC_012" then
+      -- REQ-015: bounded, non-accumulating, reproducible jitter
+      --============================================================================================================================
+      log(ID_LOG_HDR, "TC-012: j = 5 ns, T = 100 ns, t_on = 50 ns, 1000 periods", C_SCOPE);
+      v_config.jitter := 5 ns;
+      test_jitter(100 ns, 50 ns, 1000, "j 5 ns");
+      save_edges(v_edges_a);
+      -- No drift: the mean period between the first and the last active-going edge. Each edge is within +-j of its ideal
+      -- time, so the mean of 999 periods can differ from T by at most 2j/999 (plus rounding).
+      v_first := v_edges_a(0).time_stamp;
+      v_last  := v_edges_a(1998).time_stamp;
+      log(ID_SEQUENCER, "Mean period over 999 periods: " & to_string((v_last - v_first) / 999), C_SCOPE);
+      check_value_in_range((v_last - v_first) / 999, 100 ns - (2 * 5 ns) / 999 - C_RESOLUTION,
+                           100 ns + (2 * 5 ns) / 999 + C_RESOLUTION, ERROR, "mean period (no drift)", C_SCOPE);
+      -- The jitter is random: at least two different offsets
+      v_differs := false;
+      for i in 1 to 1999 loop
+        v_differs := v_differs or (v_edges_a(i).time_stamp - v_edges_a(0).time_stamp /= (i / 2) * 100 ns + (i mod 2) * 50 ns);
+      end loop;
+      check_value(v_differs, ERROR, "at least two different edge offsets", C_SCOPE);
+
+      log(ID_LOG_HDR, "TC-012: the same seeds give the same waveform, other seeds a different one", C_SCOPE);
+      test_jitter(100 ns, 50 ns, 1000, "j 5 ns, same seeds");
+      save_edges(v_edges_b);
+      check_value(v_edges_a = v_edges_b, ERROR, "same seeds: identical edges", C_SCOPE);
+      v_config.jitter_seed1 := 12345;
+      test_jitter(100 ns, 50 ns, 1000, "j 5 ns, other seeds");
+      save_edges(v_edges_b);
+      check_value(v_edges_a /= v_edges_b, ERROR, "other seeds: different edges", C_SCOPE);
+      v_config.jitter_seed1 := C_PWM_BFM_CONFIG_DEFAULT.jitter_seed1;
+
+      log(ID_LOG_HDR, "TC-012: j = 30 ns with t_on = 50 ns: no pulse or gap below 1 unit, no missing pulse", C_SCOPE);
+      v_config.jitter := 30 ns;
+      test_jitter(100 ns, 50 ns, 1000, "j 30 ns");
+
+      log(ID_LOG_HDR, "TC-012: jitter larger than the pulse and the gap", C_SCOPE);
+      v_config.jitter := 5 ns;
+      test_jitter(100 ns, C_RESOLUTION, 500, "j 5 ns, t_on 1 unit");
+      test_jitter(100 ns, 100 ns - C_RESOLUTION, 500, "j 5 ns, t_on T - 1 unit");
+      test_jitter(10 * C_RESOLUTION, 5 * C_RESOLUTION, 500, "j 5 ns, T 10 units");
+
+      log(ID_LOG_HDR, "TC-012: right- and center-aligned, active-low", C_SCOPE);
+      for alignment in RIGHT_ALIGNED to CENTER_ALIGNED loop
+        v_config.alignment := alignment;
+        test_jitter(100 ns, 30 ns, 500, "j 5 ns, " & to_string(alignment));
+      end loop;
+      v_config.polarity := ACTIVE_LOW;
+      pwm_drive_idle(pwm, v_config);
+      test_jitter(100 ns, 30 ns, 500, "j 5 ns, center-aligned, active-low");
+      v_config := C_PWM_BFM_CONFIG_DEFAULT;
+      pwm_drive_idle(pwm, v_config);
+
+      log(ID_LOG_HDR, "TC-012: 0 % and 100 % are not affected by jitter", C_SCOPE);
+      v_config.jitter := 5 ns;
+      test_generate(100 ns, 0 ns, 10, "j 5 ns, 0 %");
+      test_generate(100 ns, 100 ns, 10, "j 5 ns, 100 %");
+
+      log(ID_LOG_HDR, "TC-012: j = 0 ns gives exact edges", C_SCOPE);
+      v_config.jitter := 0 ns;
+      test_generate(100 ns, 50 ns, 10, "j 0 ns");
+
+      log(ID_LOG_HDR, "TC-012: j < 0 ns is rejected", C_SCOPE);
+      v_config.jitter := -1 ns;
+      increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "jitter < 0 ns");
+      start_test;
+      pwm_generate(100 ns, 50 ns, 1, "j -1 ns", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      check_rejected("j -1 ns");
 
     else
       alert(TB_ERROR, "Unsupported test case: " & GC_TESTCASE, C_SCOPE);

@@ -85,6 +85,16 @@ package pwm_tb_pkg is
     constant msg      : in string;
     constant scope    : in string := C_TB_SCOPE_DEFAULT);
 
+  -- For jittered waveforms: the logged edges must have the number and levels of the ideal edges 'expected', each edge
+  -- within +-jitter of its ideal time, and consecutive edges at least one resolution unit apart. Reports the first
+  -- failure of each kind and logs the smallest and largest offset found.
+  procedure check_jittered_edges(
+    variable edge_log : inout t_edge_log;
+    constant expected : in t_edge_array;
+    constant jitter   : in time;
+    constant msg      : in string;
+    constant scope    : in string := C_TB_SCOPE_DEFAULT);
+
 end package pwm_tb_pkg;
 
 package body pwm_tb_pkg is
@@ -232,6 +242,50 @@ package body pwm_tb_pkg is
                           to_string(v_edge.level), scope);
       end loop;
     end if;
+  end procedure;
+
+  procedure check_jittered_edges(
+    variable edge_log : inout t_edge_log;
+    constant expected : in t_edge_array;
+    constant jitter   : in time;
+    constant msg      : in string;
+    constant scope    : in string := C_TB_SCOPE_DEFAULT) is
+    constant C_RESOLUTION : time := std.env.resolution_limit;
+    variable v_edge       : t_edge;
+    variable v_prev       : t_edge;
+    variable v_offset     : time;
+    variable v_min_offset : time    := 0 ns;
+    variable v_max_offset : time    := 0 ns;
+    variable v_level_ok   : boolean := true;
+    variable v_time_ok    : boolean := true;
+    variable v_space_ok   : boolean := true;
+  begin
+    if not check_value(edge_log.count, expected'length, ERROR, "number of edges: " & msg, scope, ID_SEQUENCER_SUB) then
+      return;
+    end if;
+    for i in 0 to expected'length - 1 loop
+      v_edge   := edge_log.get(i);
+      v_offset := v_edge.time_stamp - expected(expected'low + i).time_stamp;
+      v_min_offset := minimum(v_min_offset, v_offset);
+      v_max_offset := maximum(v_max_offset, v_offset);
+      if v_level_ok then
+        v_level_ok := check_value(v_edge.level, expected(expected'low + i).level, MATCH_EXACT, ERROR,
+                                  "level of edge " & to_string(i) & ": " & msg, scope, ID_NEVER);
+      end if;
+      if v_time_ok then
+        v_time_ok := check_value_in_range(v_offset, -jitter, jitter, ERROR,
+                                          "offset of edge " & to_string(i) & " from its ideal time: " & msg, scope, ID_NEVER);
+      end if;
+      if v_space_ok and i > 0 then
+        v_space_ok := check_value(v_edge.time_stamp - v_prev.time_stamp >= C_RESOLUTION, ERROR,
+                                  "edge " & to_string(i) & " at least one resolution unit after edge " & to_string(i - 1) &
+                                  " (" & to_string(v_prev.time_stamp) & " -> " & to_string(v_edge.time_stamp) & "): " & msg,
+                                  scope, ID_NEVER);
+      end if;
+      v_prev := v_edge;
+    end loop;
+    log(ID_SEQUENCER_SUB, "Edge offsets from the ideal times: " & to_string(v_min_offset) & " to " & to_string(v_max_offset) &
+                          ", allowed +-" & to_string(jitter) & ". '" & msg & "'", scope);
   end procedure;
 
 end package body pwm_tb_pkg;

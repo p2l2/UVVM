@@ -120,7 +120,11 @@ package pwm_bfm_pkg is
   ---------------------------------------------------------------------------------
   -- Drives one complete period according to config.polarity and config.alignment and returns at the end of the period.
   -- 0 ns and period as active_time give a constant level without edges. Parameters are not checked, they must be valid
-  -- (period > 0 ns, 0 ns <= active_time <= period). This is the timing core used by pwm_generate() and the VVC.
+  -- (period > 0 ns, 0 ns <= active_time <= period, config.jitter >= 0 ns). This is the timing core used by
+  -- pwm_generate() and the VVC.
+  -- With config.jitter > 0 ns, every edge is moved by a random offset in [-jitter, +jitter] from its ideal time, drawn
+  -- with seed1/seed2. An edge at the period start is not moved before the period start, and every pulse and gap stays
+  -- at least one resolution unit long.
   procedure pwm_drive_period(
     constant period      : in time;
     constant active_time : in time;
@@ -134,6 +138,7 @@ package pwm_bfm_pkg is
   -- generate
   ---------------------------------------------------------------------------------
   -- Generates num_periods complete periods, then drives the idle level. Returns at the end of the last period.
+  -- The jitter randomization starts from config.jitter_seed1/2 in every call, so a call is reproducible.
   procedure pwm_generate(
     constant period       : in time;
     constant active_time  : in time;
@@ -216,6 +221,7 @@ package body pwm_bfm_pkg is
     constant period      : in time;
     constant active_time : in time;
     constant num_periods : in integer;
+    constant config      : in t_pwm_bfm_config;
     constant msg         : in string;
     constant scope       : in string;
     variable valid       : out boolean
@@ -231,6 +237,8 @@ package body pwm_bfm_pkg is
             to_string(period) & ")." & add_msg_delimiter(msg), scope);
     elsif num_periods < 1 then
       alert(TB_ERROR, proc_call & "=> Failed. num_periods must be >= 1, was " & to_string(num_periods) & "." & add_msg_delimiter(msg), scope);
+    elsif config.jitter < 0 ns then
+      alert(TB_ERROR, proc_call & "=> Failed. config.jitter must be >= 0 ns, was " & to_string(config.jitter) & "." & add_msg_delimiter(msg), scope);
     else
       valid := true;
     end if;
@@ -254,7 +262,7 @@ package body pwm_bfm_pkg is
     variable v_seed1 : positive := config.jitter_seed1;
     variable v_seed2 : positive := config.jitter_seed2;
   begin
-    check_generate_parameters(proc_call, period, active_time, num_periods, msg, scope, v_valid);
+    check_generate_parameters(proc_call, period, active_time, num_periods, config, msg, scope, v_valid);
     if not v_valid then
       return;
     end if;
@@ -338,41 +346,70 @@ package body pwm_bfm_pkg is
     variable seed1       : inout positive;
     variable seed2       : inout positive
   ) is
-    constant C_ACTIVE   : std_logic := pwm_active_level(config);
-    constant C_INACTIVE : std_logic := pwm_inactive_level(config);
-    constant C_OFF_TIME : time      := period - active_time;
-    variable v_first_gap : time;
+    constant C_RESOLUTION : time      := std.env.resolution_limit;
+    constant C_ACTIVE     : std_logic := pwm_active_level(config);
+    constant C_INACTIVE   : std_logic := pwm_inactive_level(config);
+    constant C_OFF_TIME   : time      := period - active_time;
+    type t_time_array is array (natural range <>) of time;
+    -- The assignments of one period: ideal time relative to the period start and level. The first one is at the period
+    -- boundary (an edge only if the previous period ended at the other level).
+    variable v_ideal      : t_time_array(0 to 2);
+    variable v_level      : std_logic_vector(0 to 2);
+    variable v_last       : natural;
+    variable v_first_gap  : time;
+    variable v_offset     : time;
+    variable v_time       : time;
+    variable v_now        : time := 0 ns;
   begin
-    -- 0 % and 100 %: a constant level, no edges
+    -- 0 % and 100 %: a constant level, no edges and therefore no jitter
     if active_time = 0 ns then
       pwm <= C_INACTIVE;
       wait for period;
+      return;
     elsif active_time = period then
       pwm <= C_ACTIVE;
       wait for period;
-    else
-      case config.alignment is
-        when LEFT_ALIGNED =>
-          pwm <= C_ACTIVE;
-          wait for active_time;
-          pwm <= C_INACTIVE;
-          wait for C_OFF_TIME;
-        when RIGHT_ALIGNED =>
-          pwm <= C_INACTIVE;
-          wait for C_OFF_TIME;
-          pwm <= C_ACTIVE;
-          wait for active_time;
-        when CENTER_ALIGNED =>
-          -- An odd number of resolution units in the off time: the extra unit goes to the second gap
-          v_first_gap := units_to_time(floor(time_to_units(C_OFF_TIME) / 2.0));
-          pwm <= C_INACTIVE;
-          wait for v_first_gap;
-          pwm <= C_ACTIVE;
-          wait for active_time;
-          pwm <= C_INACTIVE;
-          wait for C_OFF_TIME - v_first_gap;
-      end case;
+      return;
     end if;
+
+    case config.alignment is
+      when LEFT_ALIGNED =>
+        v_ideal(0 to 1) := (0 ns, active_time);
+        v_level(0 to 1) := C_ACTIVE & C_INACTIVE;
+        v_last          := 1;
+      when RIGHT_ALIGNED =>
+        v_ideal(0 to 1) := (0 ns, C_OFF_TIME);
+        v_level(0 to 1) := C_INACTIVE & C_ACTIVE;
+        v_last          := 1;
+      when CENTER_ALIGNED =>
+        -- An odd number of resolution units in the off time: the extra unit goes to the second gap
+        v_first_gap := units_to_time(floor(time_to_units(C_OFF_TIME) / 2.0));
+        v_ideal     := (0 ns, v_first_gap, v_first_gap + active_time);
+        v_level     := C_INACTIVE & C_ACTIVE & C_INACTIVE;
+        v_last      := 2;
+    end case;
+
+    for i in 0 to v_last loop
+      v_time := v_ideal(i);
+      if config.jitter > 0 ns then
+        -- Offset relative to the ideal time, so the jitter does not accumulate. Clamped so that the edges keep their
+        -- order, every pulse and gap is at least one resolution unit and every edge stays within its period.
+        random(-config.jitter, config.jitter, C_RESOLUTION, seed1, seed2, v_offset, "pwm_drive_period");
+        v_time := v_time + v_offset;
+        if i = 0 then
+          v_time := maximum(v_time, 0 ns);
+        else
+          v_time := maximum(v_time, v_now + C_RESOLUTION);
+        end if;
+        v_time := minimum(v_time, period - (v_last + 1 - i) * C_RESOLUTION);
+      end if;
+      if v_time > v_now then
+        wait for v_time - v_now;
+      end if;
+      pwm   <= v_level(i);
+      v_now := v_time;
+    end loop;
+    wait for period - v_now;
   end procedure;
 
   procedure pwm_generate(

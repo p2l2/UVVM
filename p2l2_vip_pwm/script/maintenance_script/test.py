@@ -2,13 +2,6 @@ import sys
 import os
 import shutil
 
-try:
-    from hdlregression import HDLRegression
-except:
-    print('Unable to import HDLRegression module. See HDLRegression documentation for installation instructions.')
-    sys.exit(1)
-
-
 # Clean the sim directory
 def cleanup(msg='Cleaning up...'):
     print(msg)
@@ -30,7 +23,20 @@ keep_output = any(arg in sys.argv for arg in ["--wlf", "-g", "--gui"])
 
 print('Verify p2l2_vip_pwm')
 
+# HDLRegression writes its output to the current directory and the .do-script check expects to run in sim:
+# always run in p2l2_vip_pwm/sim, wherever the script is started from
+sim_dir = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'sim'))
+os.makedirs(sim_dir, exist_ok=True)
+os.chdir(sim_dir)
+
 cleanup('Removing any previous runs.')
+
+# Imported after the cleanup: a kept output folder 'hdlregression' in sim would otherwise shadow the package
+try:
+    from hdlregression import HDLRegression
+except:
+    print('Unable to import HDLRegression module. See HDLRegression documentation for installation instructions.')
+    sys.exit(1)
 
 hr = HDLRegression()
 
