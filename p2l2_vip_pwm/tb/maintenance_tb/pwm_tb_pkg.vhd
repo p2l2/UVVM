@@ -11,8 +11,8 @@
 ----------------------------------------------------------------------------------------------------------------------------------
 
 ------------------------------------------------------------------------------------------
--- Description   : Support package of the PWM maintenance testbenches: an edge log filled by an edge-logger process and a
---                 reference model of the expected edges. The model does not use pwm_bfm_pkg (only its enum types), so
+-- Description   : Support package of the PWM maintenance testbenches: an edge log filled by an edge-logger process, a
+--                 reference model of the expected edges and stimulus segments for the observation tests. The model does not use pwm_bfm_pkg (only its enum types), so
 --                 that a timing error in the BFM is not repeated in the expected values.
 ------------------------------------------------------------------------------------------
 
@@ -94,6 +94,27 @@ package pwm_tb_pkg is
     constant jitter   : in time;
     constant msg      : in string;
     constant scope    : in string := C_TB_SCOPE_DEFAULT);
+
+  -- Stimulus of the observation tests: segments of a level held for a duration, driven one after the other
+  type t_segment is record
+    level    : std_logic;
+    duration : time;
+  end record t_segment;
+  type t_segment_array is array (natural range <>) of t_segment;
+
+  constant C_MAX_SEGMENTS : positive := 512;
+
+  -- One segment
+  function seg(
+    constant level    : in std_logic;
+    constant duration : in time) return t_segment_array;
+
+  -- num_periods left-aligned periods: 'active' for active_time, then the other level for the rest of the period
+  function pwm_wave(
+    constant period      : in time;
+    constant active_time : in time;
+    constant num_periods : in positive;
+    constant active      : in std_logic := '1') return t_segment_array;
 
 end package pwm_tb_pkg;
 
@@ -288,4 +309,37 @@ package body pwm_tb_pkg is
                           ", allowed +-" & to_string(jitter) & ". '" & msg & "'", scope);
   end procedure;
 
+  function seg(
+    constant level    : in std_logic;
+    constant duration : in time) return t_segment_array is
+    constant C_SEGMENT : t_segment_array(0 to 0) := (0 => (level, duration));
+  begin
+    return C_SEGMENT;
+  end function;
+
+  function pwm_wave(
+    constant period      : in time;
+    constant active_time : in time;
+    constant num_periods : in positive;
+    constant active      : in std_logic := '1') return t_segment_array is
+    variable v_segments : t_segment_array(0 to 2 * num_periods - 1);
+  begin
+    for i in 0 to num_periods - 1 loop
+      v_segments(2 * i)     := (active, active_time);
+      v_segments(2 * i + 1) := (not active, period - active_time);
+    end loop;
+    return v_segments;
+  end function;
+
 end package body pwm_tb_pkg;
+
+--==========================================================================================
+-- Edge log of the test harness. Separate package: a shared variable of a protected type cannot be declared before the
+-- protected type body.
+--==========================================================================================
+use work.pwm_tb_pkg.all;
+
+package pwm_th_pkg is
+  -- Filled by the edge logger in pwm_th (every event on the loopback line), read by pwm_vvc_tb
+  shared variable shared_th_edge_log : t_edge_log;
+end package pwm_th_pkg;
