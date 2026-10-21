@@ -35,8 +35,9 @@ package transaction_pkg is
     MEASURE, CHECK, CHECK_DUTY
   );
 
-  constant C_VVC_CMD_STRING_MAX_LENGTH : natural := 300;
-  constant C_VVC_MAX_INSTANCE_NUM      : natural := C_MAX_VVC_INSTANCE_NUM;
+  -- Constants for the maximum sizes to use in this VVC. Can be modified in adaptations_pkg.
+  alias C_VVC_CMD_STRING_MAX_LENGTH is C_PWM_VVC_CMD_STRING_MAX_LENGTH;
+  alias C_VVC_MAX_INSTANCE_NUM      is C_PWM_VVC_MAX_INSTANCE_NUM;
 
   --==========================================================================================
   -- Transaction info types, constants and global signal
