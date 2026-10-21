@@ -894,7 +894,7 @@ begin
       log(ID_LOG_HDR, "TC-103: constant-level checks", C_SCOPE);
       v_start := now;
       pwm_check(PWM_VVCT, C_OBS, 100 ns, 100 ns, "expect 100 %", 1, ERROR, 300 ns);
-      pwm_check_duty(PWM_VVCT, C_OBS, 1.0, "expect duty 1.0", 1, ERROR, 300 ns);
+      pwm_check(PWM_VVCT, C_OBS, 1.0, "expect duty 1.0", 1, ERROR, 300 ns);
       await_completion(PWM_VVCT, C_OBS, 1 us, "constant-level checks");
       check_time(600 ns, "two windows of 300 ns");
       increment_expected_alerts_and_stop_limit(ERROR, 1, "expect 0 % on a 100 % line");
@@ -917,6 +917,8 @@ begin
       start_generator(100 ns, 30 ns);
       pwm_check(PWM_VVCT, C_OBS, 100 ns, 30 ns, "correct", 3);
       await_completion(PWM_VVCT, C_OBS, 1 us, "correct");
+      pwm_check(PWM_VVCT, C_OBS, 100 ns, 3, 10, "correct, count 3/10", 3);
+      await_completion(PWM_VVCT, C_OBS, 1 us, "correct, count 3/10");
       pwm_update(PWM_VVCT, C_GEN, 101 ns, 30 ns, "T 101 ns");
       await_completion(PWM_VVCT, C_GEN, 1 us, "T 101 ns");
       increment_expected_alerts_and_stop_limit(ERROR, 1, "T off by 1 ns");
@@ -1026,6 +1028,12 @@ begin
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "num_periods 0");
       pwm_check(PWM_VVCT, C_OBS, 100 ns, 30 ns, "num_periods 0", 0);
       check_rejected(C_OBS, "num_periods 0");
+      increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "check, resolution 0");
+      pwm_check(PWM_VVCT, C_OBS, 100 ns, 0, 0, "resolution 0");
+      check_rejected(C_OBS, "check, resolution 0");
+      increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "check, count > resolution");
+      pwm_check(PWM_VVCT, C_OBS, 100 ns, 11, 10, "count 11 of 10");
+      check_rejected(C_OBS, "check, count 11 of 10");
       v_obs_config.period_tolerance := -1 ns;
       set_obs_config;
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "period_tolerance -1 ns");
@@ -1040,20 +1048,20 @@ begin
       v_obs_config.duty_tolerance := 0.01;
       set_obs_config;
       start_generator(100 ns, 25 ns);
-      pwm_check_duty(PWM_VVCT, C_OBS, 0.25, "T 100 ns", 3, ERROR, 1 us);
+      pwm_check(PWM_VVCT, C_OBS, 0.25, "T 100 ns", 3, ERROR, 1 us);
       await_completion(PWM_VVCT, C_OBS, 2 us, "T 100 ns");
       pwm_update(PWM_VVCT, C_GEN, 1 us, 250 ns, "T 1 us");
       await_completion(PWM_VVCT, C_GEN, 2 us, "T 1 us");
-      pwm_check_duty(PWM_VVCT, C_OBS, 0.25, "T 1 us, period ignored", 2, ERROR, 2 us);
+      pwm_check(PWM_VVCT, C_OBS, 0.25, "T 1 us, period ignored", 2, ERROR, 2 us);
       await_completion(PWM_VVCT, C_OBS, 5 us, "T 1 us");
       pwm_update(PWM_VVCT, C_GEN, 100 ns, 26 ns, "t_on 26 ns");
       await_completion(PWM_VVCT, C_GEN, 2 us, "t_on 26 ns");
-      pwm_check_duty(PWM_VVCT, C_OBS, 0.25, "at the tolerance", 1, ERROR, 1 us);
+      pwm_check(PWM_VVCT, C_OBS, 0.25, "at the tolerance", 1, ERROR, 1 us);
       await_completion(PWM_VVCT, C_OBS, 2 us, "at the tolerance");
       pwm_update(PWM_VVCT, C_GEN, 100 ns, 27 ns, "t_on 27 ns");
       await_completion(PWM_VVCT, C_GEN, 2 us, "t_on 27 ns");
       increment_expected_alerts_and_stop_limit(ERROR, 1, "t_on 27 ns");
-      pwm_check_duty(PWM_VVCT, C_OBS, 0.25, "above the tolerance", 1, ERROR, 1 us);
+      pwm_check(PWM_VVCT, C_OBS, 0.25, "above the tolerance", 1, ERROR, 1 us);
       await_completion(PWM_VVCT, C_OBS, 2 us, "above the tolerance");
       abort_generator;
 
@@ -1104,7 +1112,7 @@ begin
       await_completion(PWM_VVCT, C_OBS, 10 ns, "terminated constant-level check");
       check_time(100 ns, "constant-level check terminated");
       start_generator(100 ns, 30 ns);
-      pwm_check_duty(PWM_VVCT, C_OBS, 0.3, "k=10, terminated", 10, ERROR, 1 us);
+      pwm_check(PWM_VVCT, C_OBS, 0.3, "k=10, terminated", 10, ERROR, 1 us);
       wait_until_rel(250 ns);
       terminate_current_command(PWM_VVCT, C_OBS, "terminate the duty check");
       await_completion(PWM_VVCT, C_OBS, 10 ns, "terminated duty check");
@@ -1152,9 +1160,9 @@ begin
       check_value(v_ti.operation = NO_OPERATION, ERROR, "TI reset after the command", C_SCOPE);
       check_value(v_ti.transaction_status = INACTIVE, ERROR, "TI status INACTIVE after the command", C_SCOPE);
 
-      log(ID_LOG_HDR, "TC-201: transaction info of an observer during pwm_check_duty()", C_SCOPE);
+      log(ID_LOG_HDR, "TC-201: transaction info of an observer during pwm_check() with duty", C_SCOPE);
       start_generator(100 ns, 30 ns);
-      pwm_check_duty(PWM_VVCT, C_OBS, 0.3, "transaction info", 3, ERROR, 1 us);
+      pwm_check(PWM_VVCT, C_OBS, 0.3, "transaction info", 3, ERROR, 1 us);
       wait_until_rel(50 ns);
       v_ti := shared_pwm_vvc_transaction_info(C_OBS).bt;
       check_value(v_ti.operation = CHECK_DUTY, ERROR, "TI operation CHECK_DUTY", C_SCOPE);
@@ -1170,7 +1178,7 @@ begin
       v_alert_base := get_alert_counter(ERROR);
       pwm_measure(PWM_VVCT, C_GEN, "measure on generator", 100 ns);
       pwm_check(PWM_VVCT, C_GEN, 100 ns, 30 ns, "check on generator");
-      pwm_check_duty(PWM_VVCT, C_GEN, 0.3, "check_duty on generator");
+      pwm_check(PWM_VVCT, C_GEN, 0.3, "check_duty on generator");
       await_completion(PWM_VVCT, C_GEN, 1 us, "wrong role");
       check_new_alerts(ERROR, 3, "wrong role");
       check_rejected(C_GEN, "wrong role");

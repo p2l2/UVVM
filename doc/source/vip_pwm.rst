@@ -11,7 +11,6 @@ P2L2 VIP PWM
   * :ref:`pwm_drive_idle_bfm`
   * :ref:`pwm_measure_bfm`
   * :ref:`pwm_check_bfm`
-  * :ref:`pwm_check_duty_bfm`
   * :ref:`pwm_conversion_functions_bfm`
 
 * `VVC`_
@@ -23,7 +22,6 @@ P2L2 VIP PWM
   * :ref:`pwm_abort_vvc`
   * :ref:`pwm_measure_vvc`
   * :ref:`pwm_check_vvc`
-  * :ref:`pwm_check_duty_vvc`
 
 The PWM VIP generates, measures and checks a single pulse-width modulated (PWM) line: a periodic signal with period T and
 active time t_on (duty cycle D = t_on/T). See :ref:`pwm_additional_doc` for the waveform definition.
@@ -206,17 +204,17 @@ last period. The duty cycle is given as active time, as ratio or as counter valu
 pwm_drive_period()
 ----------------------------------------------------------------------------------------------------------------------------------
 Drives one complete period according to config.polarity, config.alignment and config.jitter and returns at the end of
-the period. This is the timing core used by pwm_generate() and the VVC. The parameters are not checked: they must be
-valid (period > 0 ns, 0 ns <= active_time <= period, config.jitter >= 0 ns). The jitter seeds are passed as variables, so
-consecutive calls continue the random sequence.
+the period. Unlike pwm_generate(), the line is not returned to the idle level, so consecutive calls give a continuous
+waveform, e.g. with parameters that change from period to period. The jitter seeds are passed as variables, so
+consecutive calls continue the random sequence. A log message is written with ID config.id_for_bfm after each period.
 
 The overload with 'abort' returns at once with aborted = true when 'abort' has an event during the period. The line then
-keeps its level; the caller drives the idle level.
+keeps its level; the caller drives the idle level, e.g. with pwm_drive_idle(). The VVC uses this overload.
 
 .. code-block::
 
-    pwm_drive_period(period, active_time, pwm, config, seed1, seed2)
-    pwm_drive_period(period, active_time, pwm, config, seed1, seed2, abort, aborted)
+    pwm_drive_period(period, active_time, seed1, seed2, msg, pwm, [scope, [msg_id_panel, [config]]])
+    pwm_drive_period(period, active_time, seed1, seed2, aborted, msg, pwm, abort, [scope, [msg_id_panel, [config]]])
 
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | Object   | Name               | Dir.   | Type                         | Description                                             |
@@ -225,44 +223,26 @@ keeps its level; the caller drives the idle level.
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | active_time        | in     | time                         | The active time t_on. Must be within 0 ns to period.    |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| signal   | pwm                | inout  | std_logic                    | The PWM line driven by the BFM                          |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | config             | in     | :ref:`t_pwm_bfm_config       | Configuration of BFM behavior                           |
-|          |                    |        | <t_pwm_bfm_config>`          |                                                         |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | variable | seed1              | inout  | positive                     | Jitter seed, updated by the call                        |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | variable | seed2              | inout  | positive                     | Jitter seed, updated by the call                        |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| signal   | abort              | in     | boolean                      | Optional (overload). An event ends the period at once.  |
+| variable | aborted            | out    | boolean                      | Overload with 'abort' only. True if the period was      |
+|          |                    |        |                              | ended by 'abort'.                                       |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| variable | aborted            | out    | boolean                      | Optional (overload). True if the period was ended by    |
-|          |                    |        |                              | 'abort'.                                                |
+| constant | msg                | in     | string                       | A custom message to be appended in the log/alert        |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-
-.. code-block::
-
-    -- Examples:
-    v_seed1 := C_PWM_BFM_CONFIG_DEFAULT.jitter_seed1;
-    v_seed2 := C_PWM_BFM_CONFIG_DEFAULT.jitter_seed2;
-    pwm_drive_period(1 us, 500 ns, pwm, C_PWM_BFM_CONFIG_DEFAULT, v_seed1, v_seed2);
-
-
-.. _pwm_drive_idle_bfm:
-
-pwm_drive_idle()
-----------------------------------------------------------------------------------------------------------------------------------
-Drives the idle level given by config.idle_level and config.polarity. Use it at time 0 in a BFM-only testbench, as
-pwm_generate() only drives the idle level after the last period.
-
-.. code-block::
-
-    pwm_drive_idle(pwm, [config])
-
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| Object   | Name               | Dir.   | Type                         | Description                                             |
-+==========+====================+========+==============================+=========================================================+
 | signal   | pwm                | inout  | std_logic                    | The PWM line driven by the BFM                          |
++----------+--------------------+--------+------------------------------+---------------------------------------------------------+
+| signal   | abort              | in     | boolean                      | Overload with 'abort' only. An event ends the period    |
+|          |                    |        |                              | at once.                                                |
++----------+--------------------+--------+------------------------------+---------------------------------------------------------+
+| constant | scope              | in     | string                       | Describes the scope from which the log/alert            |
+|          |                    |        |                              | originates. Default value is C_BFM_SCOPE ("PWM BFM").   |
++----------+--------------------+--------+------------------------------+---------------------------------------------------------+
+| constant | msg_id_panel       | in     | t_msg_id_panel               | Controls verbosity within a specified scope. Default    |
+|          |                    |        |                              | value is shared_msg_id_panel. For more information see  |
+|          |                    |        |                              | :ref:`vvc_framework_verbosity_ctrl`.                    |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | config             | in     | :ref:`t_pwm_bfm_config       | Configuration of BFM behavior and restrictions. Default |
 |          |                    |        | <t_pwm_bfm_config>`          | value is C_PWM_BFM_CONFIG_DEFAULT.                      |
@@ -271,7 +251,53 @@ pwm_generate() only drives the idle level after the last period.
 .. code-block::
 
     -- Examples:
-    pwm_drive_idle(pwm, C_PWM_BFM_CONFIG_DEFAULT);
+    v_seed1 := v_config.jitter_seed1;
+    v_seed2 := v_config.jitter_seed2;
+    pwm_drive_period(1 us, 250 ns, v_seed1, v_seed2, "25 % duty", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+    pwm_drive_period(1 us, 500 ns, v_seed1, v_seed2, "50 % duty", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+    pwm_drive_idle("End of the waveform", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+
+    -- With the default values of the optional parameters:
+    pwm_drive_period(1 us, 500 ns, v_seed1, v_seed2, "50 % duty", pwm);
+
+
+.. _pwm_drive_idle_bfm:
+
+pwm_drive_idle()
+----------------------------------------------------------------------------------------------------------------------------------
+Drives the idle level given by config.idle_level and config.polarity and writes a log message with ID config.id_for_bfm.
+Use it at time 0 in a BFM-only testbench, as pwm_generate() only drives the idle level after the last period, and after
+pwm_drive_period().
+
+.. code-block::
+
+    pwm_drive_idle(msg, pwm, [scope, [msg_id_panel, [config]]])
+
++----------+--------------------+--------+------------------------------+---------------------------------------------------------+
+| Object   | Name               | Dir.   | Type                         | Description                                             |
++==========+====================+========+==============================+=========================================================+
+| constant | msg                | in     | string                       | A custom message to be appended in the log/alert        |
++----------+--------------------+--------+------------------------------+---------------------------------------------------------+
+| signal   | pwm                | inout  | std_logic                    | The PWM line driven by the BFM                          |
++----------+--------------------+--------+------------------------------+---------------------------------------------------------+
+| constant | scope              | in     | string                       | Describes the scope from which the log/alert            |
+|          |                    |        |                              | originates. Default value is C_BFM_SCOPE ("PWM BFM").   |
++----------+--------------------+--------+------------------------------+---------------------------------------------------------+
+| constant | msg_id_panel       | in     | t_msg_id_panel               | Controls verbosity within a specified scope. Default    |
+|          |                    |        |                              | value is shared_msg_id_panel. For more information see  |
+|          |                    |        |                              | :ref:`vvc_framework_verbosity_ctrl`.                    |
++----------+--------------------+--------+------------------------------+---------------------------------------------------------+
+| constant | config             | in     | :ref:`t_pwm_bfm_config       | Configuration of BFM behavior and restrictions. Default |
+|          |                    |        | <t_pwm_bfm_config>`          | value is C_PWM_BFM_CONFIG_DEFAULT.                      |
++----------+--------------------+--------+------------------------------+---------------------------------------------------------+
+
+.. code-block::
+
+    -- Examples:
+    pwm_drive_idle("Idle at start", pwm, C_SCOPE, shared_msg_id_panel, C_PWM_BFM_CONFIG_DEFAULT);
+
+    -- With the default values of the optional parameters:
+    pwm_drive_idle("Idle at start", pwm);
 
 
 .. _pwm_measure_bfm:
@@ -335,20 +361,30 @@ measurement starts at the first active-going edge after the call; a period in pr
 
 pwm_check()
 ----------------------------------------------------------------------------------------------------------------------------------
-Checks num_periods consecutive periods against the expected period and active time, within config.period_tolerance
-and config.active_time_tolerance (inclusive).
+Checks num_periods consecutive periods. The expected waveform is given as period and active time, as period and counter
+value, or as duty cycle:
+
+* With period and active_time, each period is checked within config.period_tolerance and config.active_time_tolerance
+  (inclusive). If neither the call nor config.timeout sets the timeout, 2 * period is used.
+* With period, count and resolution, the active time is (count / resolution) * period, rounded as in pwm_generate(),
+  and the check is the same as with active_time.
+* With duty, the duty cycle of each period is checked within config.duty_tolerance (inclusive, plus
+  config.duty_rounding_margin), independent of the period. The timeout must be set, per call or in config.timeout.
+
+For both overloads:
 
 * If all periods match, a log message is written with ID config.id_for_bfm.
 * Each failing period raises one alert with severity 'alert_level', naming the period index and the measured and expected
   values with the tolerance.
-* active_time = 0 ns or = period checks that the line holds the inactive or active level for the timeout (the
-  observation window, which must then be > 0 ns). A wrong level or a change in the window raises one alert.
+* active_time = 0 ns or = period, and duty = 0.0 or 1.0, check that the line holds the inactive or active level for the
+  timeout (the observation window, which must then be > 0 ns). A wrong level or a change in the window raises one alert.
 * A missing edge raises a missing-activity alert with severity config.timeout_severity and ends the check.
-* If neither the call nor config.timeout sets the timeout, 2 * period is used.
 
 .. code-block::
 
     pwm_check(period, active_time, num_periods, msg, pwm, [terminate,] [alert_level, [timeout, [scope, [msg_id_panel, [config]]]]])
+    pwm_check(period, count, resolution, num_periods, msg, pwm, [terminate,] [alert_level, [timeout, [scope, [msg_id_panel, [config]]]]])
+    pwm_check(duty, num_periods, msg, pwm, [terminate,] [alert_level, [timeout, [scope, [msg_id_panel, [config]]]]])
 
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | Object   | Name               | Dir.   | Type                         | Description                                             |
@@ -357,59 +393,11 @@ and config.active_time_tolerance (inclusive).
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | active_time        | in     | time                         | The expected active time, 0 ns to period                |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | num_periods        | in     | integer                      | Number of consecutive periods to check, >= 1            |
+| constant | count              | in     | integer                      | The expected active time as counter value, 0 to         |
+|          |                    |        |                              | resolution                                              |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | msg                | in     | string                       | A custom message to be appended in the log/alert        |
+| constant | resolution         | in     | integer                      | Number of counter steps of the period, >= 1             |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| signal   | pwm                | in     | std_logic                    | The PWM line observed by the BFM                        |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| signal   | terminate          | in     | std_logic                    | Optional (overload). '1' ends the observation at once,  |
-|          |                    |        |                              | without an alert (logged with ID_TERMINATE_CMD). Used   |
-|          |                    |        |                              | by the VVC for terminate_current_command().             |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | alert_level        | in     | :ref:`t_alert_level`         | Sets the severity for the alert. Default value is       |
-|          |                    |        |                              | ERROR.                                                  |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | timeout            | in     | time                         | Maximum wait for each required edge. Default value is   |
-|          |                    |        |                              | C_UNDEFINED_TIME, which leads to using config.timeout.  |
-|          |                    |        |                              | 0 ns means no timeout. See :ref:`pwm_timeout`.          |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | scope              | in     | string                       | Describes the scope from which the log/alert            |
-|          |                    |        |                              | originates. Default value is C_BFM_SCOPE ("PWM BFM").   |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | msg_id_panel       | in     | t_msg_id_panel               | Controls verbosity within a specified scope. Default    |
-|          |                    |        |                              | value is shared_msg_id_panel. For more information see  |
-|          |                    |        |                              | :ref:`vvc_framework_verbosity_ctrl`.                    |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | config             | in     | :ref:`t_pwm_bfm_config       | Configuration of BFM behavior and restrictions. Default |
-|          |                    |        | <t_pwm_bfm_config>`          | value is C_PWM_BFM_CONFIG_DEFAULT.                      |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-
-.. code-block::
-
-    -- Examples:
-    pwm_check(1 us, 250 ns, 5, "Check 5 periods", pwm, ERROR, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, C_PWM_BFM_CONFIG_DEFAULT);
-
-    -- With the default values of the optional parameters:
-    pwm_check(1 us, 250 ns, 5, "Check 5 periods", pwm);
-
-
-.. _pwm_check_duty_bfm:
-
-pwm_check_duty()
-----------------------------------------------------------------------------------------------------------------------------------
-Checks the duty cycle of num_periods consecutive periods within config.duty_tolerance (inclusive, plus
-config.duty_rounding_margin), independent of the period. Each failing period raises one alert with severity
-'alert_level'. duty = 0.0 or 1.0 checks for a constant level as pwm_check(). The timeout must be set, per call or in
-config.timeout.
-
-.. code-block::
-
-    pwm_check_duty(duty, num_periods, msg, pwm, [terminate,] [alert_level, [timeout, [scope, [msg_id_panel, [config]]]]])
-
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| Object   | Name               | Dir.   | Type                         | Description                                             |
-+==========+====================+========+==============================+=========================================================+
 | constant | duty               | in     | real                         | The expected duty cycle, 0.0 to 1.0                     |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | num_periods        | in     | integer                      | Number of consecutive periods to check, >= 1            |
@@ -443,14 +431,19 @@ config.timeout.
 .. code-block::
 
     -- Examples:
-    pwm_check_duty(0.25, 10, "Check 25 % duty", pwm, ERROR, 2 us, C_SCOPE, shared_msg_id_panel, v_config);
+    pwm_check(1 us, 250 ns, 5, "Check 5 periods", pwm, ERROR, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, C_PWM_BFM_CONFIG_DEFAULT);
+    pwm_check(1 us, 64, 256, 5, "Check 5 periods with 64/256 duty", pwm, ERROR, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, v_config);
+    pwm_check(0.25, 10, "Check 25 % duty", pwm, ERROR, 2 us, C_SCOPE, shared_msg_id_panel, v_config);
+
+    -- With the default values of the optional parameters:
+    pwm_check(1 us, 250 ns, 5, "Check 5 periods", pwm);
 
 
 .. _pwm_conversion_functions_bfm:
 
 Conversion functions
 ----------------------------------------------------------------------------------------------------------------------------------
-The BFM package also provides the functions used by the procedures above:
+The BFM package also provides the functions used to convert a duty cycle to an active time:
 
 
 +------------------------------------------------------------------+--------------------------------------------------------------+
@@ -463,12 +456,6 @@ The BFM package also provides the functions used by the procedures above:
 | pwm_count_to_active_time(count, resolution, period) return time  | (count / resolution) * period, rounded as                    |
 |                                                                  | pwm_duty_to_active_time(). Requires 0 <= count <=            |
 |                                                                  | resolution.                                                  |
-+------------------------------------------------------------------+--------------------------------------------------------------+
-| pwm_active_level(config) return std_logic                        | '1' for ACTIVE_HIGH, '0' for ACTIVE_LOW                      |
-+------------------------------------------------------------------+--------------------------------------------------------------+
-| pwm_inactive_level(config) return std_logic                      | The opposite of pwm_active_level()                           |
-+------------------------------------------------------------------+--------------------------------------------------------------+
-| pwm_idle_value(config) return std_logic                          | The value driven on the line when idle ('Z' for IDLE_HIGH_Z) |
 +------------------------------------------------------------------+--------------------------------------------------------------+
 
 Local BFM overloads
@@ -579,7 +566,7 @@ Observation rules and timeout
 * The timeout applies to each required edge: counted from the call for the first edge, and from the previous edge after
   that. A check of many periods therefore does not need a long timeout.
 * A per-call timeout overrides config.timeout. If neither is set, pwm_check() uses 2 * period; pwm_measure() and
-  pwm_check_duty() raise a TB_ERROR. 0 ns means no timeout; a negative timeout gives a TB_ERROR.
+  pwm_check() with duty raise a TB_ERROR. 0 ns means no timeout; a negative timeout gives a TB_ERROR.
 * An edge is a change between '0' and '1'. Any other value raises an alert each time the line changes to it; an invalid
   value that returns to the same level is no edge. Before the first active-going edge, 'Z' is tolerated with
   IDLE_HIGH_Z.
@@ -1032,11 +1019,15 @@ pwm_check()
 ----------------------------------------------------------------------------------------------------------------------------------
 Adds a check command to the PWM VVC executor queue, which will run as soon as all preceding commands have completed.
 When the command is scheduled to run, the executor calls the BFM :ref:`pwm_check_bfm` procedure with the VVC
-configuration. OBSERVER role only.
+configuration. The expected waveform is given as period and active time, as period and counter value (converted to an
+active time in the method; an invalid count or resolution gives a TB_ERROR and the command is not queued), or as duty
+cycle (the transaction info operation is then CHECK_DUTY). OBSERVER role only.
 
 .. code-block::
 
     pwm_check(VVCT, vvc_instance_idx, period, active_time, msg, [num_periods, [alert_level, [timeout, [scope]]]])
+    pwm_check(VVCT, vvc_instance_idx, period, count, resolution, msg, [num_periods, [alert_level, [timeout, [scope]]]])
+    pwm_check(VVCT, vvc_instance_idx, duty, msg, [num_periods, [alert_level, [timeout, [scope]]]])
 
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | Object   | Name               | Dir.   | Type                         | Description                                             |
@@ -1050,49 +1041,10 @@ configuration. OBSERVER role only.
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | active_time        | in     | time                         | The expected active time, 0 ns to period                |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | msg                | in     | string                       | A custom message to be appended in the log/alert        |
+| constant | count              | in     | integer                      | The expected active time as counter value, 0 to         |
+|          |                    |        |                              | resolution                                              |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | num_periods        | in     | integer                      | Number of consecutive periods to check. Default value   |
-|          |                    |        |                              | is 1.                                                   |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | alert_level        | in     | :ref:`t_alert_level`         | Sets the severity for the alert. Default value is       |
-|          |                    |        |                              | ERROR.                                                  |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | timeout            | in     | time                         | Maximum wait for each required edge. Default value is   |
-|          |                    |        |                              | C_UNDEFINED_TIME, which leads to using config.timeout.  |
-|          |                    |        |                              | 0 ns means no timeout. See :ref:`pwm_timeout`.          |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | scope              | in     | string                       | Describes the scope from which the log/alert            |
-|          |                    |        |                              | originates. Default value is C_VVC_CMD_SCOPE_DEFAULT    |
-|          |                    |        |                              | defined in adaptations_pkg.                             |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-
-.. code-block::
-
-    -- Examples:
-    pwm_check(PWM_VVCT, 2, 1 us, 250 ns, "Check one period");
-    pwm_check(PWM_VVCT, 2, 1 us, 250 ns, "Check 5 periods", 5, ERROR, 2 us, C_SCOPE);
-
-
-.. _pwm_check_duty_vvc:
-
-pwm_check_duty()
-----------------------------------------------------------------------------------------------------------------------------------
-Adds a duty-check command to the PWM VVC executor queue, which will run as soon as all preceding commands have
-completed. When the command is scheduled to run, the executor calls the BFM :ref:`pwm_check_duty_bfm` procedure with the
-VVC configuration. OBSERVER role only.
-
-.. code-block::
-
-    pwm_check_duty(VVCT, vvc_instance_idx, duty, msg, [num_periods, [alert_level, [timeout, [scope]]]])
-
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| Object   | Name               | Dir.   | Type                         | Description                                             |
-+==========+====================+========+==============================+=========================================================+
-| signal   | VVCT               | inout  | t_vvc_target_record          | VVC target type compiled into each VVC in order to      |
-|          |                    |        |                              | differentiate between VVCs                              |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | vvc_instance_idx   | in     | integer                      | Instance number of the VVC                              |
+| constant | resolution         | in     | integer                      | Number of counter steps of the period, >= 1             |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | duty               | in     | real                         | The expected duty cycle, 0.0 to 1.0                     |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
@@ -1116,7 +1068,10 @@ VVC configuration. OBSERVER role only.
 .. code-block::
 
     -- Examples:
-    pwm_check_duty(PWM_VVCT, 2, 0.25, "Check 25 % duty over 10 periods", 10, ERROR, 2 us, C_SCOPE);
+    pwm_check(PWM_VVCT, 2, 1 us, 250 ns, "Check one period");
+    pwm_check(PWM_VVCT, 2, 1 us, 250 ns, "Check 5 periods", 5, ERROR, 2 us, C_SCOPE);
+    pwm_check(PWM_VVCT, 2, 1 us, 64, 256, "Check 64/256 duty", 5, ERROR, 2 us, C_SCOPE);
+    pwm_check(PWM_VVCT, 2, 0.25, "Check 25 % duty over 10 periods", 10, ERROR, 2 us, C_SCOPE);
 
 
 .. _pwm_roles:

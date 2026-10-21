@@ -243,11 +243,26 @@ package vvc_methods_pkg is
     constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
   );
 
-  -- Observer role: checks the duty cycle of num_periods consecutive periods (BFM pwm_check_duty())
-  procedure pwm_check_duty(
+  -- Observer role: checks the duty cycle of num_periods consecutive periods (BFM pwm_check() with duty)
+  procedure pwm_check(
     signal   VVCT                : inout t_vvc_target_record;
     constant vvc_instance_idx    : in    integer;
     constant duty                : in    real;
+    constant msg                 : in    string;
+    constant num_periods         : in    integer        := 1;
+    constant alert_level         : in    t_alert_level  := ERROR;
+    constant timeout             : in    time           := C_UNDEFINED_TIME;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  );
+
+  -- Observer role: active time given as counter value 'count' out of 'resolution' steps (BFM pwm_check() with count)
+  procedure pwm_check(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant period              : in    time;
+    constant count               : in    integer;
+    constant resolution          : in    integer;
     constant msg                 : in    string;
     constant num_periods         : in    integer        := 1;
     constant alert_level         : in    t_alert_level  := ERROR;
@@ -628,7 +643,7 @@ package body vvc_methods_pkg is
                           msg, scope, parent_msg_id_panel);
   end procedure;
 
-  procedure pwm_check_duty(
+  procedure pwm_check(
     signal   VVCT                : inout t_vvc_target_record;
     constant vvc_instance_idx    : in    integer;
     constant duty                : in    real;
@@ -639,12 +654,35 @@ package body vvc_methods_pkg is
     constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
     constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
   ) is
-    constant C_PROC_NAME : string := "pwm_check_duty";
+    constant C_PROC_NAME : string := "pwm_check";
     constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", duty " & to_string(duty, 6) & ", " &
                                      to_string(num_periods) & timeout_to_string(timeout) & ")";
   begin
     send_observer_command(VVCT, vvc_instance_idx, C_PROC_CALL, CHECK_DUTY, 0 ns, 0 ns, duty, num_periods, alert_level, timeout, msg,
                           scope, parent_msg_id_panel);
+  end procedure;
+
+  procedure pwm_check(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant period              : in    time;
+    constant count               : in    integer;
+    constant resolution          : in    integer;
+    constant msg                 : in    string;
+    constant num_periods         : in    integer        := 1;
+    constant alert_level         : in    t_alert_level  := ERROR;
+    constant timeout             : in    time           := C_UNDEFINED_TIME;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  ) is
+    constant C_PROC_NAME : string := "pwm_check";
+    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_string(period, ns) & ", count " &
+                                     to_string(count) & "/" & to_string(resolution) & ", " & to_string(num_periods) & timeout_to_string(timeout) & ")";
+  begin
+    if count_is_valid(C_PROC_CALL, count, resolution, msg, scope) then
+      send_observer_command(VVCT, vvc_instance_idx, C_PROC_CALL, CHECK, period, pwm_count_to_active_time(count, resolution, period), 0.0,
+                            num_periods, alert_level, timeout, msg, scope, parent_msg_id_panel);
+    end if;
   end procedure;
 
   --==========================================================================================

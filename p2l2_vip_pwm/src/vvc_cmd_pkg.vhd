@@ -41,7 +41,7 @@ package vvc_cmd_pkg is
     -- VVC dedicated fields
     period                    : time;    -- PWM period
     active_time               : time;    -- Active time; duty and count/resolution are converted by the methods
-    duty                      : real;    -- Expected duty cycle (pwm_check_duty only)
+    duty                      : real;    -- Expected duty cycle (pwm_check() with duty only)
     num_periods               : integer; -- Number of periods (checked >= 1 by the executor)
     -- Common VVC fields  (Used by td_vvc_framework_common_methods_pkg procedures, and thus mandatory)
     operation                 : t_operation;

@@ -445,16 +445,16 @@ begin
         when CHECK_DUTY =>
           if role_is(OBSERVER) then
             set_transaction_info(IN_PROGRESS);
-            pwm_check_duty(duty         => v_cmd.duty,
-                           num_periods  => v_cmd.num_periods,
-                           msg          => format_msg(v_cmd),
-                           pwm          => pwm_vvc_if,
-                           terminate    => terminate_current_cmd.is_active,
-                           alert_level  => v_cmd.alert_level,
-                           timeout      => v_cmd.timeout,
-                           scope        => C_SCOPE,
-                           msg_id_panel => v_msg_id_panel,
-                           config       => vvc_config.bfm_config);
+            pwm_check(duty         => v_cmd.duty,
+                      num_periods  => v_cmd.num_periods,
+                      msg          => format_msg(v_cmd),
+                      pwm          => pwm_vvc_if,
+                      terminate    => terminate_current_cmd.is_active,
+                      alert_level  => v_cmd.alert_level,
+                      timeout      => v_cmd.timeout,
+                      scope        => C_SCOPE,
+                      msg_id_panel => v_msg_id_panel,
+                      config       => vvc_config.bfm_config);
             set_transaction_info(COMPLETED);
           end if;
 
@@ -505,6 +505,7 @@ begin
   -- - Drives the idle level from time 0 and runs the generation requested by the executor, period by period, so that
   --   the executor stays free for UPDATE, STOP and ABORT during a continuous generation.
   -- - Latches update_req and vvc_config.bfm_config at every period boundary.
+  -- - The BFM log of each period and of the idle level is disabled (config.id_for_bfm); the executor logs the commands.
   -- OBSERVER role: drives 'Z' permanently.
   --==========================================================================================
   p_waveform : process is
@@ -519,6 +520,17 @@ begin
     variable v_seed2          : positive;
     variable v_aborted        : boolean;
     variable v_jitter_alerted : boolean;
+
+    -- vvc_config.msg_id_panel without the BFM log of every period
+    impure function waveform_msg_id_panel(
+      constant id_for_bfm : in t_msg_id
+    ) return t_msg_id_panel is
+      variable v_msg_id_panel : t_msg_id_panel := vvc_config.msg_id_panel;
+    begin
+      v_msg_id_panel(id_for_bfm) := DISABLED;
+      return v_msg_id_panel;
+    end function;
+
   begin
     if GC_ROLE = OBSERVER then
       pwm_vvc_if <= 'Z';
@@ -526,7 +538,7 @@ begin
     end if;
 
     -- From the generic: vvc_config may not be set up yet at time 0
-    pwm_drive_idle(pwm_vvc_if, GC_PWM_BFM_CONFIG);
+    pwm_drive_idle("", pwm_vvc_if, C_SCOPE, waveform_msg_id_panel(GC_PWM_BFM_CONFIG.id_for_bfm), GC_PWM_BFM_CONFIG);
 
     loop
       wait on start_req;
@@ -549,7 +561,8 @@ begin
       start_ack <= start_req.idx;
 
       loop
-        pwm_drive_period(v_period, v_active_time, pwm_vvc_if, v_config, v_seed1, v_seed2, abort_req, v_aborted);
+        pwm_drive_period(v_period, v_active_time, v_seed1, v_seed2, v_aborted, "", pwm_vvc_if, abort_req, C_SCOPE,
+                         waveform_msg_id_panel(v_config.id_for_bfm), v_config);
         exit when v_aborted;
         if not v_continuous then
           v_remaining := v_remaining - 1;
@@ -573,7 +586,7 @@ begin
         end if;
       end loop;
 
-      pwm_drive_idle(pwm_vvc_if, vvc_config.bfm_config);
+      pwm_drive_idle("", pwm_vvc_if, C_SCOPE, waveform_msg_id_panel(vvc_config.bfm_config.id_for_bfm), vvc_config.bfm_config);
       run_mode <= IDLE;
     end loop;
   end process p_waveform;

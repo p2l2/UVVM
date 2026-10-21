@@ -92,21 +92,8 @@ package pwm_bfm_pkg is
   );
 
   --==========================================================================================
-  -- Level and duty conversion functions
+  -- Duty conversion functions
   --==========================================================================================
-  function pwm_active_level(
-    constant config : in t_pwm_bfm_config
-  ) return std_logic;
-
-  function pwm_inactive_level(
-    constant config : in t_pwm_bfm_config
-  ) return std_logic;
-
-  -- The value driven on the line when idle
-  function pwm_idle_value(
-    constant config : in t_pwm_bfm_config
-  ) return std_logic;
-
   -- Returns duty * period, rounded to the nearest simulator resolution unit (half a unit is rounded up).
   -- Requires 0.0 <= duty <= 1.0 and period > 0 ns.
   function pwm_duty_to_active_time(
@@ -131,40 +118,49 @@ package pwm_bfm_pkg is
   ---------------------------------------------------------------------------------
   -- Drives the idle level given by config.idle_level and config.polarity.
   procedure pwm_drive_idle(
-    signal   pwm    : inout std_logic;
-    constant config : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
+    constant msg          : in string;
+    signal   pwm          : inout std_logic;
+    constant scope        : in string           := C_BFM_SCOPE;
+    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
+    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
   );
 
   ---------------------------------------------------------------------------------
   -- drive period
   ---------------------------------------------------------------------------------
   -- Drives one complete period according to config.polarity and config.alignment and returns at the end of the period.
-  -- 0 ns and period as active_time give a constant level without edges. Parameters are not checked, they must be valid
-  -- (period > 0 ns, 0 ns <= active_time <= period, config.jitter >= 0 ns). This is the timing core used by
-  -- pwm_generate() and the VVC.
+  -- The line is not returned to idle, so consecutive calls give a continuous waveform. 0 ns and period as active_time
+  -- give a constant level without edges. Invalid parameters (period <= 0 ns, active_time outside 0 ns to period,
+  -- config.jitter < 0 ns) raise a TB_ERROR and return at once.
   -- With config.jitter > 0 ns, every edge is moved by a random offset in [-jitter, +jitter] from its ideal time, drawn
-  -- with seed1/seed2. An edge at the period start is not moved before the period start, and every pulse and gap stays
-  -- at least one resolution unit long.
+  -- with seed1/seed2, which are updated. An edge at the period start is not moved before the period start, and every
+  -- pulse and gap stays at least one resolution unit long.
   procedure pwm_drive_period(
-    constant period      : in time;
-    constant active_time : in time;
-    signal   pwm         : inout std_logic;
-    constant config      : in t_pwm_bfm_config;
-    variable seed1       : inout positive;
-    variable seed2       : inout positive
+    constant period       : in time;
+    constant active_time  : in time;
+    variable seed1        : inout positive;
+    variable seed2        : inout positive;
+    constant msg          : in string;
+    signal   pwm          : inout std_logic;
+    constant scope        : in string           := C_BFM_SCOPE;
+    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
+    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
   );
 
   -- As above, but returns at once with aborted = true when 'abort' has an event during the period. The line keeps its
   -- level; the caller drives the idle level. Used by the VVC for pwm_abort() and terminate_current_command.
   procedure pwm_drive_period(
-    constant period      : in time;
-    constant active_time : in time;
-    signal   pwm         : inout std_logic;
-    constant config      : in t_pwm_bfm_config;
-    variable seed1       : inout positive;
-    variable seed2       : inout positive;
-    signal   abort       : in boolean;
-    variable aborted     : out boolean
+    constant period       : in time;
+    constant active_time  : in time;
+    variable seed1        : inout positive;
+    variable seed2        : inout positive;
+    variable aborted      : out boolean;
+    constant msg          : in string;
+    signal   pwm          : inout std_logic;
+    signal   abort        : in boolean;
+    constant scope        : in string           := C_BFM_SCOPE;
+    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
+    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
   );
 
   ---------------------------------------------------------------------------------
@@ -214,7 +210,8 @@ package pwm_bfm_pkg is
   -- * A period is measured from the first active-going edge after the call; a period in progress is ignored.
   -- * The timeout applies to each required edge: counted from the call for the first edge, from the previous edge after
   --   that. The per-call timeout overrides config.timeout; C_UNDEFINED_TIME means "not set" and 0 ns means "never".
-  --   If neither is set, pwm_check() uses 2 * period; pwm_measure() and pwm_check_duty() need one.
+  --   If neither is set, pwm_check() with period and active_time uses 2 * period; pwm_measure() and pwm_check() with
+  --   duty need one.
   -- * While waiting for the first active-going edge, the line may be 'Z' if config.idle_level = IDLE_HIGH_Z. Any other
   --   value than '0'/'1' raises an alert each time the line changes to it; edges are changes between '0' and '1'.
   -- * With config.min_pulse_width > 0 ns, every measured pulse or gap shorter than it raises an alert.
@@ -257,9 +254,25 @@ package pwm_bfm_pkg is
   );
 
   -- Checks the duty cycle of num_periods consecutive periods within config.duty_tolerance (inclusive), independent
-  -- of the period. duty = 0.0 or 1.0 checks for a constant level as pwm_check().
-  procedure pwm_check_duty(
+  -- of the period. duty = 0.0 or 1.0 checks for a constant level, as active_time = 0 ns or = period above.
+  procedure pwm_check(
     constant duty         : in real;
+    constant num_periods  : in integer;
+    constant msg          : in string;
+    signal   pwm          : in std_logic;
+    constant alert_level  : in t_alert_level    := ERROR;
+    constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant scope        : in string           := C_BFM_SCOPE;
+    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
+    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
+  );
+
+  -- Active time given as counter value 'count' out of 'resolution' steps of the period, converted as
+  -- pwm_count_to_active_time() and checked as above
+  procedure pwm_check(
+    constant period       : in time;
+    constant count        : in integer;
+    constant resolution   : in integer;
     constant num_periods  : in integer;
     constant msg          : in string;
     signal   pwm          : in std_logic;
@@ -298,8 +311,23 @@ package pwm_bfm_pkg is
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
   );
 
-  procedure pwm_check_duty(
+  procedure pwm_check(
     constant duty         : in real;
+    constant num_periods  : in integer;
+    constant msg          : in string;
+    signal   pwm          : in std_logic;
+    signal   terminate    : in std_logic;
+    constant alert_level  : in t_alert_level    := ERROR;
+    constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant scope        : in string           := C_BFM_SCOPE;
+    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
+    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
+  );
+
+  procedure pwm_check(
+    constant period       : in time;
+    constant count        : in integer;
+    constant resolution   : in integer;
     constant num_periods  : in integer;
     constant msg          : in string;
     signal   pwm          : in std_logic;
@@ -351,6 +379,43 @@ package body pwm_bfm_pkg is
   end function;
 
   ---------------------------------------------------------------------------------
+  -- Internal: line levels
+  ---------------------------------------------------------------------------------
+  function active_level(
+    constant config : in t_pwm_bfm_config
+  ) return std_logic is
+  begin
+    if config.polarity = ACTIVE_HIGH then
+      return '1';
+    else
+      return '0';
+    end if;
+  end function;
+
+  function inactive_level(
+    constant config : in t_pwm_bfm_config
+  ) return std_logic is
+  begin
+    if config.polarity = ACTIVE_HIGH then
+      return '0';
+    else
+      return '1';
+    end if;
+  end function;
+
+  -- The value driven on the line when idle
+  function idle_value(
+    constant config : in t_pwm_bfm_config
+  ) return std_logic is
+  begin
+    case config.idle_level is
+      when IDLE_INACTIVE => return inactive_level(config);
+      when IDLE_ACTIVE   => return active_level(config);
+      when IDLE_HIGH_Z   => return 'Z';
+    end case;
+  end function;
+
+  ---------------------------------------------------------------------------------
   -- Internal: parameter check of the generate procedures. Raises at most one alert.
   ---------------------------------------------------------------------------------
   procedure check_generate_parameters(
@@ -381,6 +446,163 @@ package body pwm_bfm_pkg is
     end if;
   end procedure;
 
+  -- Parameter check of the count/resolution overloads. Raises at most one alert.
+  procedure check_count_parameters(
+    constant proc_call  : in string;
+    constant count      : in integer;
+    constant resolution : in integer;
+    constant msg        : in string;
+    constant scope      : in string;
+    variable valid      : out boolean
+  ) is
+  begin
+    valid := false;
+    if resolution < 1 then
+      alert(TB_ERROR, proc_call & "=> Failed. resolution must be >= 1." & add_msg_delimiter(msg), scope);
+    elsif count < 0 or count > resolution then
+      alert(TB_ERROR, proc_call & "=> Failed. count must be within 0 to resolution." & add_msg_delimiter(msg), scope);
+    else
+      valid := true;
+    end if;
+  end procedure;
+
+  ---------------------------------------------------------------------------------
+  -- Internal: timing core of pwm_drive_period() and pwm_generate()
+  ---------------------------------------------------------------------------------
+  -- The assignments of one period, as time relative to the period start and level. The first one is at the
+  -- period boundary (an edge only if the previous period ended at the other level). 0 % and 100 % give one assignment
+  -- of a constant level, so no edges and no jitter. With config.jitter > 0 ns the times are already jittered.
+  type t_period_times is array (0 to 2) of time;
+
+  procedure plan_period(
+    constant period      : in time;
+    constant active_time : in time;
+    constant config      : in t_pwm_bfm_config;
+    variable seed1       : inout positive;
+    variable seed2       : inout positive;
+    variable times       : out t_period_times;
+    variable levels      : out std_logic_vector(0 to 2);
+    variable last        : out natural
+  ) is
+    constant C_RESOLUTION : time      := std.env.resolution_limit;
+    constant C_ACTIVE     : std_logic := active_level(config);
+    constant C_INACTIVE   : std_logic := inactive_level(config);
+    constant C_OFF_TIME   : time      := period - active_time;
+    variable v_ideal      : t_period_times;
+    variable v_level      : std_logic_vector(0 to 2);
+    variable v_last       : natural;
+    variable v_first_gap  : time;
+    variable v_offset     : time;
+    variable v_time       : time;
+    variable v_prev       : time := 0 ns;
+  begin
+    if active_time = 0 ns then
+      times(0)  := 0 ns;
+      levels(0) := C_INACTIVE;
+      last      := 0;
+      return;
+    elsif active_time = period then
+      times(0)  := 0 ns;
+      levels(0) := C_ACTIVE;
+      last      := 0;
+      return;
+    end if;
+
+    case config.alignment is
+      when LEFT_ALIGNED =>
+        v_ideal(0 to 1) := (0 ns, active_time);
+        v_level(0 to 1) := C_ACTIVE & C_INACTIVE;
+        v_last          := 1;
+      when RIGHT_ALIGNED =>
+        v_ideal(0 to 1) := (0 ns, C_OFF_TIME);
+        v_level(0 to 1) := C_INACTIVE & C_ACTIVE;
+        v_last          := 1;
+      when CENTER_ALIGNED =>
+        -- An odd number of resolution units in the off time: the extra unit goes to the second gap
+        v_first_gap := C_OFF_TIME / 2; -- whole resolution units, rounded down
+        v_ideal     := (0 ns, v_first_gap, v_first_gap + active_time);
+        v_level     := C_INACTIVE & C_ACTIVE & C_INACTIVE;
+        v_last      := 2;
+    end case;
+
+    for i in 0 to v_last loop
+      v_time := v_ideal(i);
+      if config.jitter > 0 ns then
+        -- Offset relative to the ideal time, so the jitter does not accumulate. Clamped so that the edges keep their
+        -- order, every pulse and gap is at least one resolution unit and every edge stays within its period.
+        random(-config.jitter, config.jitter, C_RESOLUTION, seed1, seed2, v_offset, "pwm_drive_period");
+        v_time := v_time + v_offset;
+        if i = 0 then
+          v_time := maximum(v_time, 0 ns);
+        else
+          v_time := maximum(v_time, v_prev + C_RESOLUTION);
+        end if;
+        v_time := minimum(v_time, period - (v_last + 1 - i) * C_RESOLUTION);
+      end if;
+      times(i) := v_time;
+      v_prev   := v_time;
+    end loop;
+    levels := v_level;
+    last   := v_last;
+  end procedure;
+
+  -- Drives one period, without parameter check and log
+  procedure drive_period_core(
+    constant period      : in time;
+    constant active_time : in time;
+    signal   pwm         : inout std_logic;
+    constant config      : in t_pwm_bfm_config;
+    variable seed1       : inout positive;
+    variable seed2       : inout positive
+  ) is
+    variable v_times  : t_period_times;
+    variable v_levels : std_logic_vector(0 to 2);
+    variable v_last   : natural;
+    variable v_now    : time := 0 ns;
+  begin
+    plan_period(period, active_time, config, seed1, seed2, v_times, v_levels, v_last);
+    for i in 0 to v_last loop
+      if v_times(i) > v_now then
+        wait for v_times(i) - v_now;
+      end if;
+      pwm   <= v_levels(i);
+      v_now := v_times(i);
+    end loop;
+    wait for period - v_now;
+  end procedure;
+
+  procedure drive_period_core(
+    constant period      : in time;
+    constant active_time : in time;
+    signal   pwm         : inout std_logic;
+    constant config      : in t_pwm_bfm_config;
+    variable seed1       : inout positive;
+    variable seed2       : inout positive;
+    signal   abort       : in boolean;
+    variable aborted     : out boolean
+  ) is
+    variable v_times  : t_period_times;
+    variable v_levels : std_logic_vector(0 to 2);
+    variable v_last   : natural;
+    variable v_now    : time := 0 ns;
+  begin
+    aborted := false;
+    plan_period(period, active_time, config, seed1, seed2, v_times, v_levels, v_last);
+    for i in 0 to v_last loop
+      if v_times(i) > v_now then
+        wait on abort for v_times(i) - v_now;
+        if abort'event then
+          aborted := true;
+          return;
+        end if;
+      end if;
+      pwm   <= v_levels(i);
+      v_now := v_times(i);
+    end loop;
+    wait on abort for period - v_now;
+    aborted := abort'event;
+  end procedure;
+
   ---------------------------------------------------------------------------------
   -- Internal: common part of the pwm_generate() overloads
   ---------------------------------------------------------------------------------
@@ -405,9 +627,9 @@ package body pwm_bfm_pkg is
     end if;
 
     for i in 1 to num_periods loop
-      pwm_drive_period(period, active_time, pwm, config, v_seed1, v_seed2);
+      drive_period_core(period, active_time, pwm, config, v_seed1, v_seed2);
     end loop;
-    pwm_drive_idle(pwm, config);
+    pwm <= idle_value(config);
     log(config.id_for_bfm, proc_call & " completed (active_time " & to_string(active_time, ns) & ", " & to_upper(to_string(config.polarity)) & ", " &
         to_upper(to_string(config.alignment)) & ")." & add_msg_delimiter(msg), scope, msg_id_panel);
   end procedure;
@@ -565,7 +787,7 @@ package body pwm_bfm_pkg is
     loop
       await_edge(pwm, timeout, config.idle_level = IDLE_HIGH_Z, alert_level, proc_call, msg, scope, terminate, use_terminate, v_level,
                  v_timed_out, v_terminated);
-      exit when v_timed_out or v_terminated or v_level = pwm_active_level(config);
+      exit when v_timed_out or v_terminated or v_level = active_level(config);
     end loop;
     timed_out  := v_timed_out;
     terminated := v_terminated;
@@ -614,7 +836,7 @@ package body pwm_bfm_pkg is
     variable terminated    : out boolean
   ) is
     constant C_START      : time := now;
-    variable v_level      : std_logic := pwm_active_level(config);
+    variable v_level      : std_logic := active_level(config);
     variable v_inactive   : time;
     variable v_timed_out  : boolean;
     variable v_terminated : boolean;
@@ -787,41 +1009,8 @@ package body pwm_bfm_pkg is
   end procedure;
 
   --==========================================================================================
-  -- Level and duty conversion functions
+  -- Duty conversion functions
   --==========================================================================================
-  function pwm_active_level(
-    constant config : in t_pwm_bfm_config
-  ) return std_logic is
-  begin
-    if config.polarity = ACTIVE_HIGH then
-      return '1';
-    else
-      return '0';
-    end if;
-  end function;
-
-  function pwm_inactive_level(
-    constant config : in t_pwm_bfm_config
-  ) return std_logic is
-  begin
-    if config.polarity = ACTIVE_HIGH then
-      return '0';
-    else
-      return '1';
-    end if;
-  end function;
-
-  function pwm_idle_value(
-    constant config : in t_pwm_bfm_config
-  ) return std_logic is
-  begin
-    case config.idle_level is
-      when IDLE_INACTIVE => return pwm_inactive_level(config);
-      when IDLE_ACTIVE   => return pwm_active_level(config);
-      when IDLE_HIGH_Z   => return 'Z';
-    end case;
-  end function;
-
   function pwm_duty_to_active_time(
     constant duty   : in real;
     constant period : in time
@@ -843,144 +1032,71 @@ package body pwm_bfm_pkg is
   -- BFM procedures
   --==========================================================================================
   procedure pwm_drive_idle(
-    signal   pwm    : inout std_logic;
-    constant config : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
+    constant msg          : in string;
+    signal   pwm          : inout std_logic;
+    constant scope        : in string           := C_BFM_SCOPE;
+    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
+    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
   ) is
+    constant C_PROC_NAME : string    := "pwm_drive_idle()";
+    constant C_VALUE     : std_logic := idle_value(config);
   begin
-    pwm <= pwm_idle_value(config);
+    pwm <= C_VALUE;
+    log(config.id_for_bfm, C_PROC_NAME & "=> line at '" & to_string(C_VALUE) & "' (" & to_upper(to_string(config.idle_level)) & ")." &
+        add_msg_delimiter(msg), scope, msg_id_panel);
   end procedure;
 
-  -- Internal: the assignments of one period, as time relative to the period start and level. The first one is at the
-  -- period boundary (an edge only if the previous period ended at the other level). 0 % and 100 % give one assignment
-  -- of a constant level, so no edges and no jitter. With config.jitter > 0 ns the times are already jittered.
-  type t_period_times is array (0 to 2) of time;
-
-  procedure plan_period(
-    constant period      : in time;
-    constant active_time : in time;
-    constant config      : in t_pwm_bfm_config;
-    variable seed1       : inout positive;
-    variable seed2       : inout positive;
-    variable times       : out t_period_times;
-    variable levels      : out std_logic_vector(0 to 2);
-    variable last        : out natural
+  procedure pwm_drive_period(
+    constant period       : in time;
+    constant active_time  : in time;
+    variable seed1        : inout positive;
+    variable seed2        : inout positive;
+    constant msg          : in string;
+    signal   pwm          : inout std_logic;
+    constant scope        : in string           := C_BFM_SCOPE;
+    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
+    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
   ) is
-    constant C_RESOLUTION : time      := std.env.resolution_limit;
-    constant C_ACTIVE     : std_logic := pwm_active_level(config);
-    constant C_INACTIVE   : std_logic := pwm_inactive_level(config);
-    constant C_OFF_TIME   : time      := period - active_time;
-    variable v_ideal      : t_period_times;
-    variable v_level      : std_logic_vector(0 to 2);
-    variable v_last       : natural;
-    variable v_first_gap  : time;
-    variable v_offset     : time;
-    variable v_time       : time;
-    variable v_prev       : time := 0 ns;
+    constant C_PROC_NAME : string := "pwm_drive_period(" & to_string(period, ns) & ", " & to_string(active_time, ns) & ")";
+    variable v_valid     : boolean;
   begin
-    if active_time = 0 ns then
-      times(0)  := 0 ns;
-      levels(0) := C_INACTIVE;
-      last      := 0;
-      return;
-    elsif active_time = period then
-      times(0)  := 0 ns;
-      levels(0) := C_ACTIVE;
-      last      := 0;
+    check_generate_parameters(C_PROC_NAME, period, active_time, 1, config, msg, scope, v_valid);
+    if not v_valid then
       return;
     end if;
-
-    case config.alignment is
-      when LEFT_ALIGNED =>
-        v_ideal(0 to 1) := (0 ns, active_time);
-        v_level(0 to 1) := C_ACTIVE & C_INACTIVE;
-        v_last          := 1;
-      when RIGHT_ALIGNED =>
-        v_ideal(0 to 1) := (0 ns, C_OFF_TIME);
-        v_level(0 to 1) := C_INACTIVE & C_ACTIVE;
-        v_last          := 1;
-      when CENTER_ALIGNED =>
-        -- An odd number of resolution units in the off time: the extra unit goes to the second gap
-        v_first_gap := C_OFF_TIME / 2; -- whole resolution units, rounded down
-        v_ideal     := (0 ns, v_first_gap, v_first_gap + active_time);
-        v_level     := C_INACTIVE & C_ACTIVE & C_INACTIVE;
-        v_last      := 2;
-    end case;
-
-    for i in 0 to v_last loop
-      v_time := v_ideal(i);
-      if config.jitter > 0 ns then
-        -- Offset relative to the ideal time, so the jitter does not accumulate. Clamped so that the edges keep their
-        -- order, every pulse and gap is at least one resolution unit and every edge stays within its period.
-        random(-config.jitter, config.jitter, C_RESOLUTION, seed1, seed2, v_offset, "pwm_drive_period");
-        v_time := v_time + v_offset;
-        if i = 0 then
-          v_time := maximum(v_time, 0 ns);
-        else
-          v_time := maximum(v_time, v_prev + C_RESOLUTION);
-        end if;
-        v_time := minimum(v_time, period - (v_last + 1 - i) * C_RESOLUTION);
-      end if;
-      times(i) := v_time;
-      v_prev   := v_time;
-    end loop;
-    levels := v_level;
-    last   := v_last;
+    drive_period_core(period, active_time, pwm, config, seed1, seed2);
+    log(config.id_for_bfm, C_PROC_NAME & " completed." & add_msg_delimiter(msg), scope, msg_id_panel);
   end procedure;
 
   procedure pwm_drive_period(
-    constant period      : in time;
-    constant active_time : in time;
-    signal   pwm         : inout std_logic;
-    constant config      : in t_pwm_bfm_config;
-    variable seed1       : inout positive;
-    variable seed2       : inout positive
+    constant period       : in time;
+    constant active_time  : in time;
+    variable seed1        : inout positive;
+    variable seed2        : inout positive;
+    variable aborted      : out boolean;
+    constant msg          : in string;
+    signal   pwm          : inout std_logic;
+    signal   abort        : in boolean;
+    constant scope        : in string           := C_BFM_SCOPE;
+    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
+    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
   ) is
-    variable v_times  : t_period_times;
-    variable v_levels : std_logic_vector(0 to 2);
-    variable v_last   : natural;
-    variable v_now    : time := 0 ns;
-  begin
-    plan_period(period, active_time, config, seed1, seed2, v_times, v_levels, v_last);
-    for i in 0 to v_last loop
-      if v_times(i) > v_now then
-        wait for v_times(i) - v_now;
-      end if;
-      pwm   <= v_levels(i);
-      v_now := v_times(i);
-    end loop;
-    wait for period - v_now;
-  end procedure;
-
-  procedure pwm_drive_period(
-    constant period      : in time;
-    constant active_time : in time;
-    signal   pwm         : inout std_logic;
-    constant config      : in t_pwm_bfm_config;
-    variable seed1       : inout positive;
-    variable seed2       : inout positive;
-    signal   abort       : in boolean;
-    variable aborted     : out boolean
-  ) is
-    variable v_times  : t_period_times;
-    variable v_levels : std_logic_vector(0 to 2);
-    variable v_last   : natural;
-    variable v_now    : time := 0 ns;
+    constant C_PROC_NAME : string := "pwm_drive_period(" & to_string(period, ns) & ", " & to_string(active_time, ns) & ")";
+    variable v_valid     : boolean;
+    variable v_aborted   : boolean;
   begin
     aborted := false;
-    plan_period(period, active_time, config, seed1, seed2, v_times, v_levels, v_last);
-    for i in 0 to v_last loop
-      if v_times(i) > v_now then
-        wait on abort for v_times(i) - v_now;
-        if abort'event then
-          aborted := true;
-          return;
-        end if;
-      end if;
-      pwm   <= v_levels(i);
-      v_now := v_times(i);
-    end loop;
-    wait on abort for period - v_now;
-    aborted := abort'event;
+    check_generate_parameters(C_PROC_NAME, period, active_time, 1, config, msg, scope, v_valid);
+    if not v_valid then
+      return;
+    end if;
+    drive_period_core(period, active_time, pwm, config, seed1, seed2, abort, v_aborted);
+    aborted := v_aborted;
+    if v_aborted then
+      log(config.id_for_bfm, C_PROC_NAME & " aborted." & add_msg_delimiter(msg), scope, msg_id_panel);
+    else
+      log(config.id_for_bfm, C_PROC_NAME & " completed." & add_msg_delimiter(msg), scope, msg_id_panel);
+    end if;
   end procedure;
 
   procedure pwm_generate(
@@ -1033,12 +1149,10 @@ package body pwm_bfm_pkg is
   ) is
     constant C_PROC_NAME : string := "pwm_generate(" & to_string(period, ns) & ", count " & to_string(count) & "/" &
                                      to_string(resolution) & ", " & to_string(num_periods) & ")";
+    variable v_valid     : boolean;
   begin
-    if resolution < 1 then
-      alert(TB_ERROR, C_PROC_NAME & "=> Failed. resolution must be >= 1." & add_msg_delimiter(msg), scope);
-      return;
-    elsif count < 0 or count > resolution then
-      alert(TB_ERROR, C_PROC_NAME & "=> Failed. count must be within 0 to resolution." & add_msg_delimiter(msg), scope);
+    check_count_parameters(C_PROC_NAME, count, resolution, msg, scope, v_valid);
+    if not v_valid then
       return;
     end if;
     generate_periods(C_PROC_NAME, period, pwm_count_to_active_time(count, resolution, period), num_periods, msg, pwm,
@@ -1092,7 +1206,7 @@ package body pwm_bfm_pkg is
       -- No edge within the timeout: a constant level (spec 5.2), reported as result
       v_result.is_constant    := true;
       v_result.constant_level := pwm;
-      if pwm = pwm_active_level(config) then
+      if pwm = active_level(config) then
         v_result.duty_cycle := 1.0;
       elsif not (is_valid_level(pwm) or (pwm = 'Z' and config.idle_level = IDLE_HIGH_Z)) then
         alert(ERROR, C_PROC_NAME & "=> Failed. Invalid constant level '" & to_string(pwm) & "' on the line." & add_msg_delimiter(msg), scope);
@@ -1120,6 +1234,7 @@ package body pwm_bfm_pkg is
   end procedure;
 
   procedure check_impl(
+    constant proc_call     : in string;
     constant period        : in time;
     constant active_time   : in time;
     constant num_periods   : in integer;
@@ -1133,8 +1248,7 @@ package body pwm_bfm_pkg is
     constant msg_id_panel  : in t_msg_id_panel;
     constant config        : in t_pwm_bfm_config
   ) is
-    constant C_PROC_NAME : string  := "pwm_check(" & to_string(period, ns) & ", " & to_string(active_time, ns) & ", " &
-                                      to_string(num_periods) & ")";
+    constant C_PROC_NAME : string  := proc_call;
     constant C_CONSTANT  : boolean := active_time = 0 ns or active_time = period;
     constant C_TIMEOUT   : time    := resolve_timeout(timeout, period, config);
     variable v_valid     : boolean;
@@ -1160,10 +1274,10 @@ package body pwm_bfm_pkg is
     end if;
 
     if active_time = 0 ns then
-      check_constant_level(pwm_inactive_level(config), C_TIMEOUT, alert_level, C_PROC_NAME, msg, pwm, scope, msg_id_panel, config, terminate,
+      check_constant_level(inactive_level(config), C_TIMEOUT, alert_level, C_PROC_NAME, msg, pwm, scope, msg_id_panel, config, terminate,
                            use_terminate, v_terminated);
     elsif active_time = period then
-      check_constant_level(pwm_active_level(config), C_TIMEOUT, alert_level, C_PROC_NAME, msg, pwm, scope, msg_id_panel, config, terminate,
+      check_constant_level(active_level(config), C_TIMEOUT, alert_level, C_PROC_NAME, msg, pwm, scope, msg_id_panel, config, terminate,
                            use_terminate, v_terminated);
     else
       check_periods(period, active_time, 0.0, false, num_periods, C_TIMEOUT, alert_level, C_PROC_NAME, msg, pwm, scope,
@@ -1187,7 +1301,7 @@ package body pwm_bfm_pkg is
     constant msg_id_panel  : in t_msg_id_panel;
     constant config        : in t_pwm_bfm_config
   ) is
-    constant C_PROC_NAME : string  := "pwm_check_duty(" & to_string(duty, 6) & ", " & to_string(num_periods) & ")";
+    constant C_PROC_NAME : string  := "pwm_check(duty " & to_string(duty, 6) & ", " & to_string(num_periods) & ")";
     constant C_CONSTANT  : boolean := duty = 0.0 or duty = 1.0;
     constant C_TIMEOUT   : time    := resolve_timeout(timeout, 0 ns, config);
     variable v_valid     : boolean;
@@ -1206,10 +1320,10 @@ package body pwm_bfm_pkg is
     end if;
 
     if duty = 0.0 then
-      check_constant_level(pwm_inactive_level(config), C_TIMEOUT, alert_level, C_PROC_NAME, msg, pwm, scope, msg_id_panel, config, terminate,
+      check_constant_level(inactive_level(config), C_TIMEOUT, alert_level, C_PROC_NAME, msg, pwm, scope, msg_id_panel, config, terminate,
                            use_terminate, v_terminated);
     elsif duty = 1.0 then
-      check_constant_level(pwm_active_level(config), C_TIMEOUT, alert_level, C_PROC_NAME, msg, pwm, scope, msg_id_panel, config, terminate,
+      check_constant_level(active_level(config), C_TIMEOUT, alert_level, C_PROC_NAME, msg, pwm, scope, msg_id_panel, config, terminate,
                            use_terminate, v_terminated);
     else
       check_periods(0 ns, 0 ns, duty, true, num_periods, C_TIMEOUT, alert_level, C_PROC_NAME, msg, pwm, scope, msg_id_panel, config,
@@ -1249,10 +1363,11 @@ package body pwm_bfm_pkg is
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
   ) is
   begin
-    check_impl(period, active_time, num_periods, msg, pwm, pwm, false, alert_level, timeout, scope, msg_id_panel, config);
+    check_impl("pwm_check(" & to_string(period, ns) & ", " & to_string(active_time, ns) & ", " & to_string(num_periods) & ")",
+               period, active_time, num_periods, msg, pwm, pwm, false, alert_level, timeout, scope, msg_id_panel, config);
   end procedure;
 
-  procedure pwm_check_duty(
+  procedure pwm_check(
     constant duty         : in real;
     constant num_periods  : in integer;
     constant msg          : in string;
@@ -1265,6 +1380,31 @@ package body pwm_bfm_pkg is
   ) is
   begin
     check_duty_impl(duty, num_periods, msg, pwm, pwm, false, alert_level, timeout, scope, msg_id_panel, config);
+  end procedure;
+
+  procedure pwm_check(
+    constant period       : in time;
+    constant count        : in integer;
+    constant resolution   : in integer;
+    constant num_periods  : in integer;
+    constant msg          : in string;
+    signal   pwm          : in std_logic;
+    constant alert_level  : in t_alert_level    := ERROR;
+    constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant scope        : in string           := C_BFM_SCOPE;
+    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
+    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
+  ) is
+    constant C_PROC_NAME : string := "pwm_check(" & to_string(period, ns) & ", count " & to_string(count) & "/" &
+                                     to_string(resolution) & ", " & to_string(num_periods) & ")";
+    variable v_valid     : boolean;
+  begin
+    check_count_parameters(C_PROC_NAME, count, resolution, msg, scope, v_valid);
+    if not v_valid then
+      return;
+    end if;
+    check_impl(C_PROC_NAME, period, pwm_count_to_active_time(count, resolution, period), num_periods, msg, pwm, pwm, false, alert_level,
+               timeout, scope, msg_id_panel, config);
   end procedure;
 
   procedure pwm_measure(
@@ -1295,10 +1435,11 @@ package body pwm_bfm_pkg is
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
   ) is
   begin
-    check_impl(period, active_time, num_periods, msg, pwm, terminate, true, alert_level, timeout, scope, msg_id_panel, config);
+    check_impl("pwm_check(" & to_string(period, ns) & ", " & to_string(active_time, ns) & ", " & to_string(num_periods) & ")",
+               period, active_time, num_periods, msg, pwm, terminate, true, alert_level, timeout, scope, msg_id_panel, config);
   end procedure;
 
-  procedure pwm_check_duty(
+  procedure pwm_check(
     constant duty         : in real;
     constant num_periods  : in integer;
     constant msg          : in string;
@@ -1312,6 +1453,32 @@ package body pwm_bfm_pkg is
   ) is
   begin
     check_duty_impl(duty, num_periods, msg, pwm, terminate, true, alert_level, timeout, scope, msg_id_panel, config);
+  end procedure;
+
+  procedure pwm_check(
+    constant period       : in time;
+    constant count        : in integer;
+    constant resolution   : in integer;
+    constant num_periods  : in integer;
+    constant msg          : in string;
+    signal   pwm          : in std_logic;
+    signal   terminate    : in std_logic;
+    constant alert_level  : in t_alert_level    := ERROR;
+    constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant scope        : in string           := C_BFM_SCOPE;
+    constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
+    constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
+  ) is
+    constant C_PROC_NAME : string := "pwm_check(" & to_string(period, ns) & ", count " & to_string(count) & "/" &
+                                     to_string(resolution) & ", " & to_string(num_periods) & ")";
+    variable v_valid     : boolean;
+  begin
+    check_count_parameters(C_PROC_NAME, count, resolution, msg, scope, v_valid);
+    if not v_valid then
+      return;
+    end if;
+    check_impl(C_PROC_NAME, period, pwm_count_to_active_time(count, resolution, period), num_periods, msg, pwm, terminate, true, alert_level,
+               timeout, scope, msg_id_panel, config);
   end procedure;
 
 end package body pwm_bfm_pkg;
