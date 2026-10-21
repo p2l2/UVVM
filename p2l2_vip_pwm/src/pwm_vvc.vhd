@@ -1,6 +1,18 @@
---==========================================================================================
--- This VVC was generated with UVVM VVC Generator
---==========================================================================================
+--================================================================================================================================
+-- Copyright 2026 UVVM
+-- Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
+-- You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0 and in the provided LICENSE.TXT.
+--
+-- Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+-- an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-- See the License for the specific language governing permissions and limitations under the License.
+--================================================================================================================================
+-- Note : Any functionality not explicitly described in the documentation is subject to change at any time
+----------------------------------------------------------------------------------------------------------------------------------
+
+------------------------------------------------------------------------------------------
+-- Description   : See library quick reference (under 'doc') and README-file(s)
+------------------------------------------------------------------------------------------
 
 library ieee;
 use ieee.std_logic_1164.all;
@@ -495,7 +507,7 @@ begin
   -- - Latches update_req and vvc_config.bfm_config at every period boundary.
   -- OBSERVER role: drives 'Z' permanently.
   --==========================================================================================
-  p_waveform : process
+  p_waveform : process is
     variable v_config         : t_pwm_bfm_config;
     variable v_period         : time;
     variable v_active_time    : time;
@@ -572,6 +584,6 @@ begin
   -- - Handles the termination request record (sets and resets terminate flag on request)
   --==========================================================================================
   cmd_terminator : uvvm_vvc_framework.ti_vvc_framework_support_pkg.flag_handler(terminate_current_cmd);  -- flag: is_active, set, reset
-  --==========================================================================================
+--==========================================================================================
 
 end architecture behave;

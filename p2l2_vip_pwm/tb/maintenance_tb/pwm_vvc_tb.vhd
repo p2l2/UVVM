@@ -71,7 +71,7 @@ begin
     );
 
   -- Drives the stimulus requested by p_main on pwm_inject. A new request ends a stimulus at once.
-  p_stimulus : process
+  p_stimulus : process is
     variable v_restart : boolean;
   begin
     wait on stim_start;
@@ -92,7 +92,7 @@ begin
     end loop;
   end process p_stimulus;
 
-  p_main : process
+  p_main : process is
     alias pwm_loop is << signal i_test_harness.pwm_loop : std_logic >>;
 
     variable v_config  : t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT;
@@ -452,6 +452,23 @@ begin
       await_completion(PWM_VVCT, C_OBS, 1 us, "wrong role");
       check_new_alerts(ERROR, 5, "wrong role");
       check_rejected(C_OBS, "wrong role");
+
+      -- Audit A-04: a multicast reaches both roles; every instance of the other role raises the wrong-role ERROR
+      log(ID_LOG_HDR, "TC-003: multicast with ALL_INSTANCES to mixed roles", C_SCOPE);
+      start_test;
+      increment_expected_alerts_and_stop_limit(ERROR, 2, "generate multicast");
+      v_alert_base := get_alert_counter(ERROR);
+      pwm_generate(PWM_VVCT, ALL_INSTANCES, 100 ns, 30 ns, 2, "generate multicast");
+      await_completion(PWM_VVCT, ALL_INSTANCES, 1 us, "generate multicast");
+      check_new_alerts(ERROR, 2, "generate multicast, one per OBSERVER");
+      check_time(200 ns, "generate multicast");
+      check_expected(repeat_period(100 ns, 30 ns, 2), "generate multicast");
+      start_test;
+      increment_expected_alerts_and_stop_limit(ERROR, 1, "measure multicast");
+      v_alert_base := get_alert_counter(ERROR);
+      pwm_measure(PWM_VVCT, ALL_INSTANCES, "measure multicast", 200 ns);
+      await_completion(PWM_VVCT, ALL_INSTANCES, 1 us, "measure multicast");
+      check_new_alerts(ERROR, 1, "measure multicast, one for the GENERATOR");
 
       log(ID_LOG_HDR, "TC-003: insert_delay() in clock cycles", C_SCOPE);
       start_test;

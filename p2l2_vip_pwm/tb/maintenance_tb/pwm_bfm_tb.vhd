@@ -48,7 +48,7 @@ architecture func of pwm_bfm_tb is
 
   signal pwm : std_logic := 'U';
 
-  shared variable edge_log : t_edge_log;
+  shared variable shared_edge_log : t_edge_log;
 
   -- Observation tests: the line and the stimulus requests from p_main to p_stimulus
   signal pwm_obs          : std_logic := '0';
@@ -65,14 +65,14 @@ architecture func of pwm_bfm_tb is
 
 begin
 
-  p_edge_logger : process
+  p_edge_logger : process is
   begin
     wait on pwm;
-    edge_log.add(now, pwm);
+    shared_edge_log.add(now, pwm);
   end process p_edge_logger;
 
   -- Drives the stimulus requested by p_main on pwm_obs. A new request ends a segment stimulus at once.
-  p_stimulus : process
+  p_stimulus : process is
     variable v_restart : boolean;
   begin
     wait on stim_start;
@@ -102,7 +102,7 @@ begin
     end loop;
   end process p_stimulus;
 
-  p_main : process
+  p_main : process is
     variable v_config : t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT;
     variable v_seed1  : positive;
     variable v_seed2  : positive;
@@ -136,7 +136,7 @@ begin
     begin
       settle;
       v_level := pwm;
-      edge_log.clear;
+      shared_edge_log.clear;
       v_start := now;
     end procedure;
 
@@ -154,7 +154,7 @@ begin
       settle;
       check_value(pwm, tb_idle_value(v_config.polarity, v_config.idle_level), MATCH_EXACT, ERROR, "idle after: " & msg, C_SCOPE,
                   ID_SEQUENCER_SUB);
-      check_edges(edge_log, expected_edges(v_start, v_level, params, v_config.alignment,
+      check_edges(shared_edge_log, expected_edges(v_start, v_level, params, v_config.alignment,
                                            tb_active_level(v_config.polarity),
                                            tb_idle_value(v_config.polarity, v_config.idle_level)), msg, C_SCOPE);
     end procedure;
@@ -181,7 +181,7 @@ begin
       for i in times'range loop
         v_expected(i) := (v_start + times(i), levels(levels'low + i - times'low));
       end loop;
-      check_edges(edge_log, v_expected, msg, C_SCOPE);
+      check_edges(shared_edge_log, v_expected, msg, C_SCOPE);
     end procedure;
 
     -- Checks an invalid call of a generate procedure: called right after start_test, it must not use time or touch
@@ -191,7 +191,7 @@ begin
     begin
       check_value(now, v_start, ERROR, "no time used: " & msg, C_SCOPE, ID_SEQUENCER_SUB);
       settle;
-      check_value(edge_log.count, 0, ERROR, "line unchanged: " & msg, C_SCOPE, ID_SEQUENCER_SUB);
+      check_value(shared_edge_log.count, 0, ERROR, "line unchanged: " & msg, C_SCOPE, ID_SEQUENCER_SUB);
     end procedure;
 
     -- TC-001 / TC-004: all periods with the active times 1 unit, T/4, T/2, T - 1 unit
@@ -232,7 +232,7 @@ begin
       pwm_generate(period, active_time, num_periods, msg, pwm, C_SCOPE, shared_msg_id_panel, v_config);
       check_value(now, v_start + num_periods * period, ERROR, "completion time: " & msg, C_SCOPE, ID_SEQUENCER_SUB);
       settle;
-      check_jittered_edges(edge_log, expected_edges(v_start, v_level, repeat_period(period, active_time, num_periods),
+      check_jittered_edges(shared_edge_log, expected_edges(v_start, v_level, repeat_period(period, active_time, num_periods),
                                                     v_config.alignment, tb_active_level(v_config.polarity),
                                                     tb_idle_value(v_config.polarity, v_config.idle_level)),
                            v_config.jitter, msg, C_SCOPE);
@@ -243,8 +243,8 @@ begin
       variable edges : out t_edge_array) is
       variable v_edge : t_edge;
     begin
-      for i in 0 to minimum(edge_log.count, edges'length) - 1 loop
-        v_edge := edge_log.get(i);
+      for i in 0 to minimum(shared_edge_log.count, edges'length) - 1 loop
+        v_edge := shared_edge_log.get(i);
         edges(edges'low + i) := (v_edge.time_stamp - v_start, v_edge.level);
       end loop;
     end procedure;
@@ -563,11 +563,11 @@ begin
         start_test;
         pwm_generate(10 ns, 0 ns, 10, "0 %", pwm, C_SCOPE, shared_msg_id_panel, v_config);
         check_generated(repeat_period(10 ns, 0 ns, 10), "0 % " & to_string(alignment));
-        check_value(edge_log.count, 0, ERROR, "0 %: no edges", C_SCOPE);
+        check_value(shared_edge_log.count, 0, ERROR, "0 %: no edges", C_SCOPE);
         start_test;
         pwm_generate(10 ns, 10 ns, 10, "100 %", pwm, C_SCOPE, shared_msg_id_panel, v_config);
         check_generated(repeat_period(10 ns, 10 ns, 10), "100 % " & to_string(alignment));
-        check_value(edge_log.count, 2, ERROR, "100 %: only the edges from and to idle", C_SCOPE);
+        check_value(shared_edge_log.count, 2, ERROR, "100 %: only the edges from and to idle", C_SCOPE);
 
         log(ID_LOG_HDR, "TC-006: 50 % -> 0 % -> 50 % -> 100 % -> 50 % back to back, " & to_string(alignment), C_SCOPE);
         test_drive_periods(C_DUTY_SEQUENCE, "duty sequence " & to_string(alignment));

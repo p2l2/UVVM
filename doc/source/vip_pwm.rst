@@ -745,6 +745,12 @@ Methods
 
 .. note::
 
+    A multicast with ALL_INSTANCES reaches every instance, whatever its role. If the testbench has both GENERATOR and OBSERVER
+    instances, each instance of the other role raises an ERROR and skips the command. Use ALL_INSTANCES only for methods that
+    all instances accept, e.g. the common VVC methods, or when all instances have the same role.
+
+.. note::
+
     Some parameters in the VVC procedures are unconstrained for flexibility. However, the maximum sizes of such parameters need to
     be defined for the VVC framework. For this VVC, the following maximum values can be configured from adaptations_pkg:
 
@@ -1129,6 +1135,10 @@ Roles and generator run state
   active_time, num_periods and config.jitter values raise a TB_ERROR in the executor and the command is skipped.
 * Changes of shared_pwm_vvc_config(idx).bfm_config take effect at the next period boundary. A negative config.jitter set
   during a run raises one TB_ERROR, and the run keeps the previous configuration.
+* "Next period boundary" means the next boundary after the request reaches the VVC. A pwm_update(), pwm_stop() or
+  configuration change issued at the same simulation time as a period boundary may take effect only at the following
+  boundary, e.g. pwm_stop() issued exactly N periods after pwm_start() can give N+1 periods. Issue such requests before the
+  boundary time.
 * The idle level is driven from GC_PWM_BFM_CONFIG at time 0 and from the current configuration at the end of each run.
 * terminate_current_command() during pwm_generate() aborts the generation. During pwm_update() or pwm_stop() it ends the
   wait only; the request stays pending. During an observer command it ends the observation at once, without an alert.

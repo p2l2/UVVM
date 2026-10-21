@@ -408,7 +408,8 @@ package body pwm_bfm_pkg is
       pwm_drive_period(period, active_time, pwm, config, v_seed1, v_seed2);
     end loop;
     pwm_drive_idle(pwm, config);
-    log(config.id_for_bfm, proc_call & " completed (active_time " & to_string(active_time, ns) & ")." & add_msg_delimiter(msg), scope, msg_id_panel);
+    log(config.id_for_bfm, proc_call & " completed (active_time " & to_string(active_time, ns) & ", " & to_upper(to_string(config.polarity)) & ", " &
+        to_upper(to_string(config.alignment)) & ")." & add_msg_delimiter(msg), scope, msg_id_panel);
   end procedure;
 
   ---------------------------------------------------------------------------------
@@ -775,9 +776,13 @@ package body pwm_bfm_pkg is
       end if;
     end loop;
 
-    if v_num_failed = 0 then
-      log(config.id_for_bfm, proc_call & "=> OK, " & to_string(num_periods) & " period(s) checked." & add_msg_delimiter(msg), scope,
-          msg_id_panel);
+    if v_num_failed = 0 and check_duty then
+      log(config.id_for_bfm, proc_call & "=> OK, " & to_string(num_periods) & " period(s) checked (duty +-" &
+          to_string(config.duty_tolerance, 6) & ")." & add_msg_delimiter(msg), scope, msg_id_panel);
+    elsif v_num_failed = 0 then
+      log(config.id_for_bfm, proc_call & "=> OK, " & to_string(num_periods) & " period(s) checked (T +-" &
+          to_string(config.period_tolerance, ns) & ", t_on +-" & to_string(config.active_time_tolerance, ns) & ")." &
+          add_msg_delimiter(msg), scope, msg_id_panel);
     end if;
   end procedure;
 

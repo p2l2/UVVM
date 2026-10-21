@@ -92,7 +92,7 @@ begin
   -----------------------------------------------------------------------------
   -- Edge logger: every event on the loopback line, from time 0
   -----------------------------------------------------------------------------
-  p_edge_logger : process
+  p_edge_logger : process is
   begin
     wait on pwm_loop;
     shared_th_edge_log.add(now, pwm_loop);
