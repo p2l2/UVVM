@@ -37,26 +37,17 @@ use work.transaction_pkg.all;
 --==========================================================================================
 entity rotary_encoder_vvc is
   generic (
-    --<USER_INPUT> Insert interface specific generic constants here
-    -- Example:
-    -- GC_ADDR_WIDTH                            : integer range 1 to C_VVC_CMD_ADDR_MAX_LENGTH;
-    -- GC_DATA_WIDTH                            : integer range 1 to C_VVC_CMD_DATA_MAX_LENGTH;
-    GC_INSTANCE_IDX                          : natural;
-    GC_ROTARY_ENCODER_BFM_CONFIG             : t_rotary_encoder_bfm_config:= C_ROTARY_ENCODER_BFM_CONFIG_DEFAULT;
-    GC_CMD_QUEUE_COUNT_MAX                   : natural                   := C_CMD_QUEUE_COUNT_MAX;
-    GC_CMD_QUEUE_COUNT_THRESHOLD             : natural                   := C_CMD_QUEUE_COUNT_THRESHOLD;
-    GC_CMD_QUEUE_COUNT_THRESHOLD_SEVERITY    : t_alert_level             := C_CMD_QUEUE_COUNT_THRESHOLD_SEVERITY;
-    GC_RESULT_QUEUE_COUNT_MAX                : natural                   := C_RESULT_QUEUE_COUNT_MAX;
-    GC_RESULT_QUEUE_COUNT_THRESHOLD          : natural                   := C_RESULT_QUEUE_COUNT_THRESHOLD;
-    GC_RESULT_QUEUE_COUNT_THRESHOLD_SEVERITY : t_alert_level             := C_RESULT_QUEUE_COUNT_THRESHOLD_SEVERITY
+    GC_INSTANCE_IDX                          : natural                     := 1;
+    GC_ROTARY_ENCODER_BFM_CONFIG             : t_rotary_encoder_bfm_config := C_ROTARY_ENCODER_BFM_CONFIG_DEFAULT;
+    GC_CMD_QUEUE_COUNT_MAX                   : natural                     := C_CMD_QUEUE_COUNT_MAX;
+    GC_CMD_QUEUE_COUNT_THRESHOLD             : natural                     := C_CMD_QUEUE_COUNT_THRESHOLD;
+    GC_CMD_QUEUE_COUNT_THRESHOLD_SEVERITY    : t_alert_level               := C_CMD_QUEUE_COUNT_THRESHOLD_SEVERITY;
+    GC_RESULT_QUEUE_COUNT_MAX                : natural                     := C_RESULT_QUEUE_COUNT_MAX;
+    GC_RESULT_QUEUE_COUNT_THRESHOLD          : natural                     := C_RESULT_QUEUE_COUNT_THRESHOLD;
+    GC_RESULT_QUEUE_COUNT_THRESHOLD_SEVERITY : t_alert_level               := C_RESULT_QUEUE_COUNT_THRESHOLD_SEVERITY
   );
   port (
-    --<USER_INPUT> Insert BFM interface signals here
-    -- Example:
-    -- rotary_encoder_vvc_if       : inout t_rotary_encoder_if := init_rotary_encoder_if_signals(GC_ADDR_WIDTH, GC_DATA_WIDTH);
-    -- VVC control signals:
-    -- rst                         : in std_logic; -- Optional VVC Reset
-    clk                         : in std_logic
+    rotary_encoder_vvc_if : inout t_rotary_encoder_if := init_rotary_encoder_if_signals(VOID)
   );
 end entity rotary_encoder_vvc;
 

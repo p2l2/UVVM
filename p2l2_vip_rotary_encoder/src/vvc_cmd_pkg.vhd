@@ -24,6 +24,7 @@ context uvvm_util.uvvm_util_context;
 library uvvm_vvc_framework;
 use uvvm_vvc_framework.ti_vvc_framework_support_pkg.all;
 
+use work.rotary_encoder_bfm_pkg.all;
 use work.transaction_pkg.all;
 
 --==========================================================================================
@@ -100,7 +101,8 @@ package vvc_cmd_pkg is
   -- - t_vvc_result includes the return value of the procedure in the BFM. It can also
   --   be defined as a record if multiple values shall be transported from the BFM
   --==========================================================================================
-  subtype  t_vvc_result is std_logic_vector(C_VVC_CMD_DATA_MAX_LENGTH - 1 downto 0);
+  -- Result of rotary_encoder_get_status() (arch 7.2)
+  subtype t_vvc_result is t_rotary_encoder_status;
 
   type t_vvc_result_queue_element is record
     cmd_idx       : natural;   -- from UVVM handshake mechanism
@@ -130,22 +132,22 @@ package vvc_cmd_pkg is
   --==========================================================================================
   -- Procedures
   --==========================================================================================
-  --function to_string (
-  --  result : t_vvc_result
-  --) return string;
+  function to_string(
+    result : t_vvc_result
+  ) return string;
 
 end package vvc_cmd_pkg;
 
 package body vvc_cmd_pkg is
 
   -- Custom to_string overload needed when result is of a record type
-  --function to_string (
-  --  result : t_vvc_result
-  --) return string is
-  --begin
-  --  <USER_INPUT> Set the record fields from the t_vvc_result here
-  --   Example:
-  --   return to_string(result.data_array'length) & " Words";
-  --end function to_string;
+  function to_string(
+    result : t_vvc_result
+  ) return string is
+  begin
+    return "position " & to_string(result.position) & ", angle " & to_string(result.angle, 3) & " deg, AB " &
+           to_string(result.ab) & ", index " & to_string(result.index_active) & ", rotating " &
+           to_string(result.is_rotating) & ", rpm " & to_string(result.rpm, 3);
+  end function to_string;
 
 end package body vvc_cmd_pkg;

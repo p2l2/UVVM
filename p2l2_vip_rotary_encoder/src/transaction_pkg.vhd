@@ -46,17 +46,10 @@ package transaction_pkg is
     -- TRANSMIT, RECEIVE, EXPECT
   );
 
-  --<USER_INPUT> Create constants for the maximum sizes to use in this VVC.
-  -- You can create VVCs with smaller sizes than these constants, but not larger.
-  -- For example, given a VVC with parallel data bus and address bus, constraints
-  -- should be added for maximum data length and address length.
-  -- Note: if these constants are to be flexible, create similar constants in adaptations_pkg
-  -- and use them to assign these constants, see other UVVM VIPs for guidance on how it's done.
-  -- Example:
-  constant C_VVC_CMD_DATA_MAX_LENGTH   : natural := 32;
-  --constant C_VVC_CMD_ADDR_MAX_LENGTH   : natural := 32;
-  constant C_VVC_CMD_STRING_MAX_LENGTH : natural := 300;
-  constant C_VVC_MAX_INSTANCE_NUM      : natural := C_MAX_VVC_INSTANCE_NUM;
+  -- Constants for the maximum sizes to use in this VVC. Can be modified in adaptations_pkg.
+  alias C_VVC_CMD_PROFILE_MAX_LENGTH is C_ROTARY_ENCODER_VVC_CMD_PROFILE_MAX_LENGTH;
+  alias C_VVC_CMD_STRING_MAX_LENGTH  is C_ROTARY_ENCODER_VVC_CMD_STRING_MAX_LENGTH;
+  alias C_VVC_MAX_INSTANCE_NUM       is C_ROTARY_ENCODER_VVC_MAX_INSTANCE_NUM;
 
   --==========================================================================================
   -- Transaction info types, constants and global signal
