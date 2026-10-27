@@ -513,6 +513,12 @@ package adaptations_pkg is
   constant C_RGMII_VVC_CMD_STRING_MAX_LENGTH : natural := C_COMMON_VVC_CMD_STRING_MAX_LENGTH;
   constant C_RGMII_VVC_MAX_INSTANCE_NUM      : natural := C_MAX_VVC_INSTANCE_NUM;
 
+  -- ROTARY ENCODER
+  -- Constants for the maximum sizes to use in the VVC.
+  constant C_ROTARY_ENCODER_VVC_CMD_PROFILE_MAX_LENGTH : natural := 256;
+  constant C_ROTARY_ENCODER_VVC_CMD_STRING_MAX_LENGTH  : natural := C_COMMON_VVC_CMD_STRING_MAX_LENGTH;
+  constant C_ROTARY_ENCODER_VVC_MAX_INSTANCE_NUM       : natural := C_MAX_VVC_INSTANCE_NUM;
+
   -- SBI
   -- Constants for the maximum sizes to use in the VVC.
   constant C_SBI_VVC_CMD_DATA_MAX_LENGTH   : natural := 32;

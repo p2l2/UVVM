@@ -1,0 +1,7 @@
+P2L2 VIP Rotary Encoder - Overview on Versions and Changes
+==============================================================
+
+v1.0.0
+----------
+Released: not yet released (in development)
+- Initial version of the rotary encoder VIP.
