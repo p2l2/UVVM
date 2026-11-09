@@ -30,6 +30,11 @@ package rotary_encoder_tb_pkg is
 
   constant C_RESOLUTION : time := std.env.resolution_limit;
 
+  -- Physical constants (written here, not taken from the BFM, tb arch 1)
+  constant C_EDGES_PER_CYCLE : positive := 4;   -- Quadrature: 4 edges per cycle
+  constant C_SEC_PER_MIN     : positive := 60;
+  constant C_DEG_PER_REV     : positive := 360;
+
   -- Log ids: the BFM testbench uses id 1, the test harness ids 1 to 3 (one per VVC instance)
   constant C_NUM_LOGS : positive := 3;
 
@@ -81,14 +86,55 @@ package rotary_encoder_tb_pkg is
     constant a : in std_logic;
     constant b : in std_logic) return integer;
 
-  -- Ideal time of edge k (k = 1 is the first edge) of a move started at t_start with an integer rpm:
-  -- t_start + (k - 1/2) * 60 s / (rpm * 4 * cycles_per_rev), floored to the simulator resolution. Exact integer/time
-  -- arithmetic, no accumulated error (tb arch 3.4).
+  -- t_start + numerator / denominator seconds, floored to the simulator resolution. Exact integer/time arithmetic: decimal
+  -- long division of the fraction of a second, so no accumulated error and no overflow (tb arch 3.4).
+  function ideal_time(
+    constant t_start     : in time;
+    constant numerator   : in natural;
+    constant denominator : in positive) return time;
+
+  -- Ideal time of edge k (k = 1 is the first edge) of a move started at t_start in a state centre with an integer rpm:
+  -- t_start + (k - 1/2) * 60 s / (rpm * 4 * cycles_per_rev), floored to the simulator resolution.
   function ideal_edge_time(
     constant t_start        : in time;
     constant k              : in positive;
     constant rpm            : in positive;
     constant cycles_per_rev : in positive) return time;
+
+  -- Ideal end of a move of num_edges edges: t_start + num_edges * 60 s / (rpm * 4 * cycles_per_rev), floored
+  function ideal_move_time(
+    constant t_start        : in time;
+    constant num_edges      : in natural;
+    constant rpm            : in positive;
+    constant cycles_per_rev : in positive) return time;
+
+  -- Ideal duration of an angle move of degrees at rpm: degrees / (6 * rpm) s, floored
+  function ideal_angle_time(
+    constant degrees : in natural;
+    constant rpm     : in positive) return time;
+
+  -- Edges first_idx .. first_idx + num_edges - 1 of the log are A/B edges at exactly t_start + (k - 1/2) * time_per_edge
+  procedure check_edge_times(
+    variable event_log     : inout t_event_log;
+    constant id            : in positive;
+    constant first_idx     : in natural;
+    constant t_start       : in time;
+    constant num_edges     : in positive;
+    constant time_per_edge : in time;
+    constant msg           : in string;
+    constant scope         : in string := C_TB_SCOPE_DEFAULT);
+
+  -- As check_edge_times, rpm form: each edge within one resolution step of ideal_edge_time()
+  procedure check_edge_times_rpm(
+    variable event_log      : inout t_event_log;
+    constant id             : in positive;
+    constant first_idx      : in natural;
+    constant t_start        : in time;
+    constant num_edges      : in positive;
+    constant rpm            : in positive;
+    constant cycles_per_rev : in positive;
+    constant msg            : in string;
+    constant scope          : in string := C_TB_SCOPE_DEFAULT);
 
   -- Checker counters since the last clear(): position change, illegal transitions, invalid levels (tb arch 3.2, TD-5)
   procedure check_checker(
@@ -272,26 +318,121 @@ package body rotary_encoder_tb_pkg is
     end function;
   end protected body t_event_log;
 
+  function ideal_time(
+    constant t_start     : in time;
+    constant numerator   : in natural;
+    constant denominator : in positive) return time is
+    variable v_time : time    := t_start + (numerator / denominator) * 1 sec;
+    variable v_rem  : natural := numerator mod denominator;
+    variable v_unit : time    := 1 sec;
+  begin
+    while v_unit > C_RESOLUTION loop
+      v_unit := v_unit / 10;
+      v_rem  := v_rem * 10;
+      v_time := v_time + (v_rem / denominator) * v_unit;
+      v_rem  := v_rem mod denominator;
+    end loop;
+    return v_time;
+  end function;
+
   function ideal_edge_time(
     constant t_start        : in time;
     constant k              : in positive;
     constant rpm            : in positive;
     constant cycles_per_rev : in positive) return time is
-    constant C_NUM   : natural := (2 * k - 1) * 30;          -- (k - 1/2) * 60
-    constant C_DEN   : natural := rpm * 4 * cycles_per_rev;
-    variable v_time  : time    := t_start + (C_NUM / C_DEN) * 1 sec;
-    variable v_rem   : natural := C_NUM mod C_DEN;
-    variable v_unit  : time    := 1 sec;
   begin
-    -- Decimal long division of the fraction of a second, one digit per power of ten down to the resolution
-    while v_unit > C_RESOLUTION loop
-      v_unit := v_unit / 10;
-      v_rem  := v_rem * 10;
-      v_time := v_time + (v_rem / C_DEN) * v_unit;
-      v_rem  := v_rem mod C_DEN;
-    end loop;
-    return v_time;
+    return ideal_time(t_start, (2 * k - 1) * C_SEC_PER_MIN, 2 * rpm * C_EDGES_PER_CYCLE * cycles_per_rev); -- (k - 1/2)
   end function;
+
+  function ideal_move_time(
+    constant t_start        : in time;
+    constant num_edges      : in natural;
+    constant rpm            : in positive;
+    constant cycles_per_rev : in positive) return time is
+  begin
+    return ideal_time(t_start, num_edges * C_SEC_PER_MIN, rpm * C_EDGES_PER_CYCLE * cycles_per_rev);
+  end function;
+
+  function ideal_angle_time(
+    constant degrees : in natural;
+    constant rpm     : in positive) return time is
+  begin
+    return ideal_time(0 ns, degrees * C_SEC_PER_MIN, rpm * C_DEG_PER_REV);
+  end function;
+
+  -- Shared part of check_edge_times and check_edge_times_rpm: edge k at expected(k) within tolerance
+  procedure check_edges_against(
+    variable event_log : inout t_event_log;
+    constant id        : in positive;
+    constant first_idx : in natural;
+    constant num_edges : in positive;
+    constant expected  : in time_vector; -- (1 to num_edges)
+    constant tolerance : in time;
+    constant msg       : in string;
+    constant scope     : in string) is
+    variable v_event   : t_enc_event;
+    variable v_dev     : time;
+    variable v_max_dev : time    := 0 ns;
+    variable v_ok      : boolean := true;
+  begin
+    if event_log.count(id) < first_idx + num_edges then
+      alert(ERROR, "encoder " & to_string(id) & ": " & to_string(event_log.count(id) - first_idx) & " events logged, " &
+                   to_string(num_edges) & " edges expected: " & msg, scope);
+      return;
+    end if;
+    for k in 1 to num_edges loop
+      v_event := event_log.get(id, first_idx + k - 1);
+      v_dev   := v_event.time_stamp - expected(k);
+      if abs(v_dev) > v_max_dev then
+        v_max_dev := abs(v_dev);
+      end if;
+      if v_ok and (not (v_event.a_changed or v_event.b_changed) or abs(v_dev) > tolerance) then
+        alert(ERROR, "encoder " & to_string(id) & ": edge " & to_string(k) & " at " & to_string(v_event.time_stamp, ns) &
+                     ", expected " & to_string(expected(k), ns) & " +-" & to_string(tolerance, ns) & " (A/B changed: " &
+                     to_string(v_event.a_changed or v_event.b_changed) & "): " & msg, scope);
+        v_ok := false;
+      end if;
+    end loop;
+    if v_ok then
+      log(ID_SEQUENCER_SUB, "encoder " & to_string(id) & ": " & to_string(num_edges) & " edge times OK, largest deviation " &
+                            to_string(v_max_dev, ns) & ". '" & msg & "'", scope);
+    end if;
+  end procedure;
+
+  procedure check_edge_times(
+    variable event_log     : inout t_event_log;
+    constant id            : in positive;
+    constant first_idx     : in natural;
+    constant t_start       : in time;
+    constant num_edges     : in positive;
+    constant time_per_edge : in time;
+    constant msg           : in string;
+    constant scope         : in string := C_TB_SCOPE_DEFAULT) is
+    variable v_expected : time_vector(1 to num_edges);
+  begin
+    for k in 1 to num_edges loop
+      v_expected(k) := t_start + (2 * k - 1) * time_per_edge / 2;
+    end loop;
+    check_edges_against(event_log, id, first_idx, num_edges, v_expected, 0 ns, msg, scope);
+  end procedure;
+
+  procedure check_edge_times_rpm(
+    variable event_log      : inout t_event_log;
+    constant id             : in positive;
+    constant first_idx      : in natural;
+    constant t_start        : in time;
+    constant num_edges      : in positive;
+    constant rpm            : in positive;
+    constant cycles_per_rev : in positive;
+    constant msg            : in string;
+    constant scope          : in string := C_TB_SCOPE_DEFAULT) is
+    variable v_expected : time_vector(1 to num_edges);
+  begin
+    for k in 1 to num_edges loop
+      v_expected(k) := ideal_edge_time(t_start, k, rpm, cycles_per_rev);
+    end loop;
+    check_edges_against(event_log, id, first_idx, num_edges, v_expected, C_RESOLUTION, msg, scope);
+  end procedure;
 
   procedure check_checker(
     variable event_log           : inout t_event_log;

@@ -39,10 +39,15 @@ end entity rotary_encoder_th;
 
 architecture struct of rotary_encoder_th is
 
+  -- Instance 3 (tb arch 2.1): power-up through the generic at 30 deg (position 7) with zero state 00 (REQ-002, REQ-006)
+  constant C_ENC3_START_ANGLE : real                         := 30.0;
+  constant C_ENC3_ZERO_STATE  : std_logic_vector(1 downto 0) := "00";
+
   function enc3_config return t_rotary_encoder_bfm_config is
     variable v_config : t_rotary_encoder_bfm_config := C_ROTARY_ENCODER_BFM_CONFIG_DEFAULT;
   begin
-    v_config.start_angle := 30.0;
+    v_config.start_angle := C_ENC3_START_ANGLE;
+    v_config.zero_state  := C_ENC3_ZERO_STATE;
     return v_config;
   end function;
 
