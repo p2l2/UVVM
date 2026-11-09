@@ -1152,9 +1152,9 @@ Scoreboard
 This VVC has no Scoreboard functionality. Measurements are fetched with fetch_result(), see :ref:`pwm_measure_vvc`.
 
 
-Unwanted Activity Detection
+Unwanted Transaction Detection
 ==================================================================================================================================
-This VVC has no unwanted activity detection.
+This VVC has no unwanted transaction detection.
 
 
 Compilation
