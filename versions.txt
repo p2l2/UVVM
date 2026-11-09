@@ -25,4 +25,3 @@ This project uses the following versions:
   bitvis_vip_wishbone, version v1.0.2
   external_vip_apb, version v1.0.1
   p2l2_vip_pwm, version v1.0.0
-
