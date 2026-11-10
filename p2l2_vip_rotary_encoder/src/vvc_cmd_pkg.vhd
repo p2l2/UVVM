@@ -101,7 +101,7 @@ package vvc_cmd_pkg is
   -- - t_vvc_result includes the return value of the procedure in the BFM. It can also
   --   be defined as a record if multiple values shall be transported from the BFM
   --==========================================================================================
-  -- Result of rotary_encoder_get_status() (arch 7.2)
+  -- Result of rotary_encoder_get_status()
   subtype t_vvc_result is t_rotary_encoder_status;
 
   type t_vvc_result_queue_element is record

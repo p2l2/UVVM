@@ -45,6 +45,13 @@ architecture func of rotary_encoder_vvc_tb is
 
   constant C_SCOPE : string := C_TB_SCOPE_DEFAULT;
 
+  -- vvc_instances_execute_commands
+  constant C_DELAY   : time := 100 ns; -- insert_delay in every instance
+  constant C_TIMEOUT : time := 1 us;   -- await_completion; well above C_DELAY
+
+  -- Debug only (waveform): the current test step, i.e. the last header written with log_step()
+  signal dbg_step : string(1 to C_DBG_STEP_LENGTH) := dbg_text("");
+
 begin
 
   -----------------------------------------------------------------------------
@@ -53,6 +60,13 @@ begin
   i_test_harness : entity work.rotary_encoder_th;
 
   p_main : process is
+    -- Logs a test-step header and shows it in the waveform as dbg_step
+    procedure log_step(
+      constant msg : in string) is
+    begin
+      log(ID_LOG_HDR, msg, C_SCOPE);
+      dbg_step <= dbg_text(msg);
+    end procedure;
   begin
     -- To avoid that log files from different test cases (run in separate simulations) overwrite each other.
     set_log_file_name(GC_TESTCASE & "_Log.txt");
@@ -74,19 +88,18 @@ begin
     log(ID_LOG_HDR_LARGE, "Simulating " & GC_TESTCASE & ", resolution " & to_string(C_RESOLUTION), C_SCOPE);
 
     --============================================================================================================================
-    if GC_TESTCASE = "TC_000" then
-      -- Testbench plumbing (Stage 5.2): the three VVC instances accept and execute a command; the loggers are connected.
-      -- Replaced by the power-up checks of TC_001 once p_motion drives the interface (Inc 4).
-      log(ID_LOG_HDR, "TC_000: VVC instances execute insert_delay", C_SCOPE);
+    if GC_TESTCASE = "vvc_instances_execute_commands" then
+      -- Testbench plumbing: the three VVC instances accept and execute a command; the loggers are connected
+      log_step("VVC instances execute insert_delay");
       for i in 1 to C_NUM_LOGS loop
-        insert_delay(ROTARY_ENCODER_VVCT, i, 100 ns, "plumbing");
+        insert_delay(ROTARY_ENCODER_VVCT, i, C_DELAY, "plumbing");
       end loop;
       for i in 1 to C_NUM_LOGS loop
-        await_completion(ROTARY_ENCODER_VVCT, i, 1 us, "plumbing");
+        await_completion(ROTARY_ENCODER_VVCT, i, C_TIMEOUT, "plumbing");
       end loop;
-      check_value(now >= 100 ns, ERROR, "insert_delay took effect", C_SCOPE);
+      check_value(now >= C_DELAY, ERROR, "insert_delay took effect", C_SCOPE);
 
-      log(ID_LOG_HDR, "TC_000: no interface driver yet, so the event logs are empty", C_SCOPE);
+      log_step("No interface driver yet, so the event logs are empty");
       for i in 1 to C_NUM_LOGS loop
         check_value(shared_th_event_log.count(i), 0, ERROR, "events of encoder " & to_string(i), C_SCOPE);
         check_checker(shared_th_event_log, i, 0, "skeleton VVC");
@@ -101,7 +114,7 @@ begin
     --------------------------------------------------------------------------------------
     wait for 1000 ns;                   -- to allow some time for completion
     report_alert_counters(FINAL);       -- Report final counters and print conclusion for simulation (Success/Fail)
-    log(ID_LOG_HDR, "SIMULATION COMPLETED", C_SCOPE);
+    log_step("SIMULATION COMPLETED");
 
     -- Finish the simulation
     std.env.stop;

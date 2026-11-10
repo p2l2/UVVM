@@ -11,7 +11,7 @@
 ----------------------------------------------------------------------------------------------------------------------------------
 
 ------------------------------------------------------------------------------------------
--- Description   : Test harness of rotary_encoder_vvc_tb (tb arch 2.1):
+-- Description   : Test harness of rotary_encoder_vvc_tb:
 --                 - i1_rotary_encoder_vvc (idx 1, default configuration) on enc1_if
 --                 - i2_rotary_encoder_vvc (idx 2, default configuration) on enc2_if, for the concurrency tests
 --                 - i3_rotary_encoder_vvc (idx 3, start angle 30 deg) on enc3_if, for the power-up tests
@@ -39,7 +39,8 @@ end entity rotary_encoder_th;
 
 architecture struct of rotary_encoder_th is
 
-  -- Instance 3 (tb arch 2.1): power-up through the generic at 30 deg (position 7) with zero state 00 (REQ-002, REQ-006)
+  -- Instance 3: power-up through the generic at 30 deg (position 7) with zero state 00, i.e. a start angle that is not a
+  -- state centre and a zero state other than the default
   constant C_ENC3_START_ANGLE : real                         := 30.0;
   constant C_ENC3_ZERO_STATE  : std_logic_vector(1 downto 0) := "00";
 
