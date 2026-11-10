@@ -33,7 +33,7 @@ use work.rotary_encoder_th_pkg.all;
 --hdlregression:tb
 -- Test case entity
 -- VVC TB: p_main sends commands to the VVCs in rotary_encoder_th and checks the events recorded by the loggers there
--- with the decoder checker in rotary_encoder_tb_pkg. Test case IDs refer to doc/rotary_encoder_vvc_tb_arch.md.
+-- with the decoder checker in rotary_encoder_tb_pkg. GC_TESTCASE selects the test case by name.
 entity rotary_encoder_vvc_tb is
   generic(
     GC_TESTCASE : string := "UVVM"
@@ -44,11 +44,6 @@ end entity;
 architecture func of rotary_encoder_vvc_tb is
 
   constant C_SCOPE : string := C_TB_SCOPE_DEFAULT;
-
-  -- vvc_instances_execute_commands
-  constant C_DELAY   : time := 100 ns; -- insert_delay in every instance
-  constant C_TIMEOUT : time := 1 us;   -- await_completion; well above C_DELAY
-
   -- Debug only (waveform): the current test step, i.e. the last header written with log_step()
   signal dbg_step : string(1 to C_DBG_STEP_LENGTH) := dbg_text("");
 
@@ -92,12 +87,12 @@ begin
       -- Testbench plumbing: the three VVC instances accept and execute a command; the loggers are connected
       log_step("VVC instances execute insert_delay");
       for i in 1 to C_NUM_LOGS loop
-        insert_delay(ROTARY_ENCODER_VVCT, i, C_DELAY, "plumbing");
+        insert_delay(ROTARY_ENCODER_VVCT, i, 100 ns, "plumbing");
       end loop;
       for i in 1 to C_NUM_LOGS loop
-        await_completion(ROTARY_ENCODER_VVCT, i, C_TIMEOUT, "plumbing");
+        await_completion(ROTARY_ENCODER_VVCT, i, 1 us, "plumbing");  -- Timeout well above the delay
       end loop;
-      check_value(now >= C_DELAY, ERROR, "insert_delay took effect", C_SCOPE);
+      check_value(now >= 100 ns, ERROR, "insert_delay took effect", C_SCOPE);
 
       log_step("No interface driver yet, so the event logs are empty");
       for i in 1 to C_NUM_LOGS loop

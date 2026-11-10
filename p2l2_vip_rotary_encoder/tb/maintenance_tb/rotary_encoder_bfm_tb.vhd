@@ -29,7 +29,7 @@ use work.rotary_encoder_th_pkg.all;
 --hdlregression:tb
 -- Test case entity
 -- BFM TB: p_main calls the BFM procedures directly on enc_if; p_logger records every change in shared_th_event_log
--- (id 1). Test case IDs refer to doc/rotary_encoder_vvc_tb_arch.md.
+-- (id 1). GC_TESTCASE selects the test case by name.
 entity rotary_encoder_bfm_tb is
   generic(
     GC_TESTCASE : string := "UVVM"
@@ -56,9 +56,10 @@ architecture func of rotary_encoder_bfm_tb is
   constant C_TIME_PER_DEG_FAST : time := 100 ns;
   constant C_TPE_ANGLE_FAST    : time := C_TIME_PER_DEG_FAST * C_DEG_PER_EDGE;
 
-  constant C_QUIET_TIME : time := 1 us;     -- Interval checked for the absence of events
-  constant C_IDLE_TIME  : time := C_TPE;    -- Before each re-init, so the previous end state shows in the waveform
-  constant C_REAL_TOL   : real := 1.0e-9;   -- Tolerance of status angles and converted speeds
+  constant C_QUIET_TIME         : time     := 1 us;   -- Interval checked for the absence of events
+  constant C_IDLE_TIME          : time     := C_TPE;  -- Before each re-init, so the previous end state shows in the waveform
+  constant C_REAL_TOL           : real     := 1.0e-9; -- Tolerance of status angles and converted speeds
+  constant C_Z_EVENTS_PER_PULSE : positive := 2;      -- One index pulse: Z rises and falls
 
   type t_state_array is array (natural range <>) of std_logic_vector(1 downto 0);
 
@@ -82,24 +83,20 @@ architecture func of rotary_encoder_bfm_tb is
   -- active at position 0 only for the zero state 11.
   constant C_STATES          : t_state_array                := ("00", "10", "11", "01");
   constant C_Z_AT_ZERO       : std_logic_vector(0 to 3)     := "0010"; -- Z at position 0 per entry of C_STATES
-  constant C_BAD_ZERO_STATE  : std_logic_vector(1 downto 0) := "0X";
-  constant C_OTHER_ZERO_STATE : std_logic_vector(1 downto 0) := "00";
 
   -- Move and timing test vectors
-  constant C_NUM_EDGES  : integer_vector := (1, 2, 3, 4, 5, 1000);
-  constant C_TIMING_TPE : time_vector    := (1 ns, 1 us, 1 ms);  -- time form
-  constant C_TIMING_RPM : integer_vector := (7, 6000);  -- rpm form
-  constant C_LONG_RUN   : positive       := 1000;  -- rpm form
-  constant C_CURVE_TPE  : time_vector    := (1 us, 3 us);  -- time form
-  constant C_CURVE_RPM  : integer_vector := (60, 120);  -- rpm form
-  constant C_ANGLE_10   : real           := 10.0;                    -- 2 edges, ends at 10 deg
-  constant C_ANGLE_1    : real           := 1.0;                     -- Crosses no edge
-  constant C_ANGLE_RPM  : positive       := 60;  -- rpm form
-  constant C_SMALL_STEP : real           := 0.1;
+  constant C_NUM_EDGES    : integer_vector := (1, 2, 3, 4, 5, 1000);
+  constant C_TIMING_TPE   : time_vector    := (1 ns, 1 us, 1 ms); -- time form
+  constant C_TIMING_RPM   : integer_vector := (7, 6000);          -- rpm form
+  constant C_RPM_EDGE_TOL : time           := 2 * C_RESOLUTION;   -- Interval of two rpm-form edges, each rounded once
+  constant C_BAD_TPES     : time_vector    := (0 ns, -1 ns);      -- Invalid time_per_edge
+  constant C_BAD_RPMS     : real_vector    := (0.0, -60.0, real'high); -- Invalid speeds
+  constant C_ANGLE_10     : real           := 10.0;               -- 2 edges, ends at 10 deg
+  constant C_ANGLE_1      : real           := 1.0;                -- Crosses no edge
+  constant C_ANGLE_RPM    : positive       := 60;                 -- rpm form
 
   -- move_to_state: time form T = 1 us. Default zero state 11: positions 0 to 3 are 11, 01, 00, 10.
   -- start_position is the state the shaft is in at start_angle, end_position the expected target centre (hand-computed).
-  constant C_TO_STATE_TPE : time := 1 us;
   type t_to_state_case is record
     start_angle    : real;
     start_position : integer;
@@ -116,13 +113,9 @@ architecture func of rotary_encoder_bfm_tb is
     (0.0, 0, FORWARD, "00", 2, 6),    -- second occurrence, 27 deg
     (0.0, 0, REVERSE, "00", 1, -2),   -- -9 deg
     (0.0, 0, FORWARD, "10", 1, 3));   -- 13.5 deg
-  constant C_BAD_TARGET : std_logic_vector(1 downto 0) := "0X";
 
-  -- center_state
-  constant C_CENTER_FROM     : real      := 10.0;         -- In position 2: centred to 9 deg
-  constant C_BOUNDARY_ANGLE  : real      := 6.75;         -- Boundary between positions 1 and 2 (1.5 edge angles)
-  constant C_OFFSET_ANGLES   : real_vector := (1.0, 3.5); -- Start angles of the edge-offset cases
-  constant C_EDGE_OFFSET     : real      := 44.0;         -- Electrical degrees, all four edges, + and -
+  -- center_state: start angles of the edge-offset cases
+  constant C_OFFSET_ANGLES   : real_vector := (1.0, 3.5);
 
   -- Run-to-run comparisons (index_polarity, bounce_placement, bounce_with_jitter, jitter): the second run is logged into C_ID_CMP
   constant C_ID_CMP : positive := 2;
@@ -133,48 +126,30 @@ architecture func of rotary_encoder_bfm_tb is
   constant C_INDEX_CPRS      : integer_vector := (1, 3, 24);
   constant C_INDEX_POSITIONS : integer_vector := (0, 5, -3);
   constant C_INDEX_STATES    : t_state_array  := ("00", "10");
-  constant C_WIDE_INDEX      : positive       := 2;                  -- Hand-checked case: Z active while B is low
   -- Hand-checked case (zero state 00, index state 00, width 2): Z at positions 0, 1, 2, -1 (hand values)
   constant C_WIDE_POSITIONS  : integer_vector := (0, 1, 2, -1);
   constant C_WIDE_Z          : std_logic_vector(0 to 3) := "1100";
   -- Index state 00, width 1: Z at positions 0 to 3 with zero state 00 and with zero state 11 (hand values)
-  constant C_Z_ZERO_00       : std_logic_vector(0 to 3) := "1000";
-  constant C_Z_ZERO_11       : std_logic_vector(0 to 3) := "0010";
+  type t_z_pattern_array is array (natural range <>) of std_logic_vector(0 to 3);
+  constant C_PLACEMENT_ZERO_STATES : t_state_array     := ("00", "11");
+  constant C_PLACEMENT_Z           : t_z_pattern_array := ("1000", "0010");
   -- invalid_index_configuration
   constant C_BAD_WIDTHS      : integer_vector := (0, C_EDGES_PER_CYCLE + 1);
-  constant C_BAD_INDEX_STATE : std_logic_vector(1 downto 0) := "0X";
-  constant C_AB_00           : std_logic_vector(1 downto 0) := "00";
-  constant C_AB_11           : std_logic_vector(1 downto 0) := "11";
+  constant C_BAD_CPR         : integer        := 0; -- Also an invalid argument of the conversion functions
 
   -- bounce, bounce_placement, bounce_cut_off_and_invalid_window. Edges C_BOUNCE_TPE apart; C_BOUNCE_WINDOW ends before the next edge.
   constant C_BOUNCE_TPE     : time     := 10 us;
-  constant C_BOUNCE_EDGES   : positive := 20;
   constant C_BOUNCE_PULSES  : positive := 2;                    -- 4 extra toggles
   constant C_BOUNCE_WINDOW  : time     := 4 us;
-  constant C_EVEN_PULSES    : positive := 3;                    -- 6 toggles, spacing C_EVEN_WINDOW / 7
-  constant C_EVEN_WINDOW    : time     := 7 us;
-  constant C_EVEN_EDGES     : positive := 4;
-  constant C_CUT_WINDOW     : time     := 2 * C_BOUNCE_TPE;     -- Settled again at the next edge
-  constant C_CUT_WINDOW_ODD : time     := 3 * C_BOUNCE_TPE;     -- One toggle before the next edge: settled one delta before it
-  constant C_CUT_WINDOWS    : time_vector    := (C_CUT_WINDOW, C_CUT_WINDOW_ODD);
+  -- Bounce windows that outlast the next edge: with 2 * C_BOUNCE_TPE the channel is settled again at the next edge;
+  -- with 3 * C_BOUNCE_TPE it is at its bounced level and settles one delta before the edge
+  constant C_CUT_WINDOWS    : time_vector    := (2 * C_BOUNCE_TPE, 3 * C_BOUNCE_TPE);
   constant C_CUT_EDGES      : integer_vector := (6, 4);         -- Two commands
   constant C_BAD_WINDOWS    : time_vector    := (0 ns, -1 ns);
-  constant C_OTHER_SEED     : positive := 12345;
-  -- bounce_with_jitter: C_BOUNCE_JITTER keeps every bounce before the earliest next edge
-  -- (C_BOUNCE_WINDOW < C_BOUNCE_TPE - 2 * amplitude); C_CUT_JITTER with C_JITTER_CUT_WINDOW lets edges pulled early by
-  -- jitter cut the bounce off, although the window fits at ideal timing.
-  constant C_BOUNCE_JITTER     : real     := 20.0;              -- Electrical degrees
-  constant C_CUT_JITTER        : real     := 40.0;
-  constant C_JITTER_CUT_WINDOW : time     := 6 us;
-  constant C_JITTER_CUT_EDGES  : positive := 100;               -- Per command, so that jitter cuts off at least one bounce
-  constant C_JITTER_CUT_CMDS   : positive := 2;
 
   -- jitter, invalid_jitter
-  constant C_JITTER        : real           := 40.0;            -- Electrical degrees
-  constant C_JITTER_TPE    : time           := 1 us;
   constant C_JITTER_EDGES  : positive       := 10_000;
-  constant C_JITTER_RPMS   : integer_vector := (60, 600);       -- Scaling with time_per_edge
-  constant C_SCALING_EDGES : positive       := 1000;
+  constant C_JITTER_RPMS   : integer_vector := (60, 600);       -- Same jitter in degrees, scaling with time_per_edge
   constant C_REPRO_EDGES   : positive       := 100;
   constant C_JITTER_LIMIT  : real           := C_DEG_ELECTRICAL_PER_EDGE / 2.0;                -- 45 deg
   constant C_B_OFFSET      : real           := 30.0;            -- Narrowest state 60 deg
@@ -636,8 +611,9 @@ begin
       -- Index pulse
       drive('1', '1', '1');
       drive('1', '1', '0');
+      -- 6 edges (4 forward, 2 reverse), the illegal transition, 'X' and back, Z up and down: 11 log entries
       check_value(shared_th_event_log.num_edges(C_ID), 6, ERROR, "number of edges", C_SCOPE);
-      check_value(shared_th_event_log.num_z_events(C_ID), 2, ERROR, "number of Z events", C_SCOPE);
+      check_value(shared_th_event_log.num_z_events(C_ID), C_Z_EVENTS_PER_PULSE, ERROR, "number of Z events", C_SCOPE);
       check_value(shared_th_event_log.count(C_ID), 11, ERROR, "number of log entries", C_SCOPE);
 
       log_step("Zero-length state (two events in different deltas at the same time)");
@@ -660,7 +636,7 @@ begin
       increment_expected_alerts_and_stop_limit(ERROR, 1, "check_no_event must detect the event");
       check_no_event(shared_th_event_log, C_ID, v_start, now, "event expected to be detected");
 
-      -- Hand-computed reference values (exact fractions at 20 cycles/rev), independent of the default configuration
+      -- Hand-computed: (k - 1/2) * 60 s / (rpm * 4 * cycles_per_rev) after t_start, floored to the resolution
       log_step("Ideal_edge_time against exact values (floor to the resolution)");
       check_edge_time(0 ns, 1, 60, 20, 6250 us, 6250 us);
       check_edge_time(0 ns, 2, 60, 20, 18750 us, 18750 us);
@@ -696,18 +672,18 @@ begin
       log_step("Invalid zero state at init");
       init_encoder(C_DEFAULT);
       v_bad_config            := C_DEFAULT;
-      v_bad_config.zero_state := C_BAD_ZERO_STATE;
-      begin_reject("init with zero state " & to_string(C_BAD_ZERO_STATE));
+      v_bad_config.zero_state := "0X";  -- Invalid level
+      begin_reject("init with zero state " & to_string(v_bad_config.zero_state));
       show_config(v_bad_config);
       rotary_encoder_init(v_state, "invalid zero state", enc_if, config => v_bad_config);
-      end_reject("init with zero state " & to_string(C_BAD_ZERO_STATE));
+      end_reject("init with zero state " & to_string(v_bad_config.zero_state));
 
       log_step("Invalid and changed zero state after init");
       for i in 0 to 1 loop
         if i = 0 then
-          v_bad_config.zero_state := C_BAD_ZERO_STATE;
+          v_bad_config.zero_state := "0X";  -- Invalid level
         else
-          v_bad_config.zero_state := C_OTHER_ZERO_STATE;
+          v_bad_config.zero_state := "00";  -- Valid, but not the zero state kept at init
         end if;
         begin_reject("edge move with zero state " & to_string(v_bad_config.zero_state));
         show_config(v_bad_config);
@@ -754,6 +730,7 @@ begin
         check_checker(shared_th_event_log, C_ID, 10, "timing");
       end loop;
 
+      -- 3 + 2 + 2 = 7 edges without a gap; net position +3 - 2 + 2 = 3
       log_step("Back to back with direction changes: +3 -2 +2");
       init_encoder(config_with(0.0));
       v_t_start := now;
@@ -764,36 +741,38 @@ begin
       check_edge_times(shared_th_event_log, C_ID, 0, v_t_start, 7, C_TPE, "back to back");
       check_checker(shared_th_event_log, C_ID, 3, "back to back");
 
-      log_step("Rpm form, " & to_string(C_LONG_RUN) & " edges per speed");
+      log_step("Rpm form, 1000 edges per speed");
       increment_expected_alerts(TB_WARNING, 1, "UVVM time stamp truncation (7 rpm ends between whole ns, shown once)");
       for i in C_TIMING_RPM'range loop
         init_encoder(config_with(0.0));
         v_t_start := now;
-        edges(FORWARD, C_LONG_RUN, real(C_TIMING_RPM(i)));
-        check_duration(ideal_move_time(0 ns, C_LONG_RUN, C_TIMING_RPM(i), C_CPR), C_RESOLUTION,
-                       to_string(C_LONG_RUN) & " edges at " & to_string(C_TIMING_RPM(i)) & " rpm");
-        check_edge_times_rpm(shared_th_event_log, C_ID, 0, v_t_start, C_LONG_RUN, C_TIMING_RPM(i), C_CPR, to_string(C_TIMING_RPM(i)) & " rpm");
-        check_checker(shared_th_event_log, C_ID, C_LONG_RUN, "rpm form");
+        edges(FORWARD, 1000, real(C_TIMING_RPM(i)));
+        check_duration(ideal_move_time(0 ns, 1000, C_TIMING_RPM(i), C_CPR), C_RESOLUTION,
+                       "1000 edges at " & to_string(C_TIMING_RPM(i)) & " rpm");
+        check_edge_times_rpm(shared_th_event_log, C_ID, 0, v_t_start, 1000, C_TIMING_RPM(i), C_CPR, to_string(C_TIMING_RPM(i)) & " rpm");
+        check_checker(shared_th_event_log, C_ID, 1000, "rpm form");
       end loop;
 
+      -- 3 edges at 1 us, then 3 at 3 us; log entries 2 and 3 are the last edge at the first speed and the first at the second
       log_step("Speed curve, time form: 3 edges per speed");
       init_encoder(config_with(0.0));
       v_t_start := now;
-      edges(FORWARD, 3, C_CURVE_TPE(0));
-      edges(FORWARD, 3, C_CURVE_TPE(1));
-      check_edge_times(shared_th_event_log, C_ID, 0, v_t_start, 3, C_CURVE_TPE(0), "first speed");
-      check_edge_times(shared_th_event_log, C_ID, 3, v_t_start + 3 * C_CURVE_TPE(0), 3, C_CURVE_TPE(1), "second speed");
+      edges(FORWARD, 3, 1 us);
+      edges(FORWARD, 3, 3 us);
+      check_edge_times(shared_th_event_log, C_ID, 0, v_t_start, 3, 1 us, "first speed");
+      check_edge_times(shared_th_event_log, C_ID, 3, v_t_start + 3 * 1 us, 3, 3 us, "second speed");
       check_value(shared_th_event_log.get(C_ID, 3).time_stamp - shared_th_event_log.get(C_ID, 2).time_stamp,
-                  (C_CURVE_TPE(0) + C_CURVE_TPE(1)) / 2, ERROR, "interval at the speed change = mean of the two time_per_edge",
+                  (1 us + 3 us) / 2, ERROR, "interval at the speed change = mean of the two time_per_edge",
                   C_SCOPE, ID_SEQUENCER_SUB);
 
+      -- The same with 3 edges at 60 rpm, then 3 at 120 rpm
       log_step("Speed curve, rpm form: 3 edges per speed");
       init_encoder(config_with(0.0));
-      edges(FORWARD, 3, real(C_CURVE_RPM(0)));
-      edges(FORWARD, 3, real(C_CURVE_RPM(1)));
-      v_time_out := (ideal_move_time(0 ns, 1, C_CURVE_RPM(0), C_CPR) + ideal_move_time(0 ns, 1, C_CURVE_RPM(1), C_CPR)) / 2;
+      edges(FORWARD, 3, 60.0);
+      edges(FORWARD, 3, 120.0);
+      v_time_out := (ideal_move_time(0 ns, 1, 60, C_CPR) + ideal_move_time(0 ns, 1, 120, C_CPR)) / 2;
       check_value_in_range(shared_th_event_log.get(C_ID, 3).time_stamp - shared_th_event_log.get(C_ID, 2).time_stamp,
-                           v_time_out - 2 * C_RESOLUTION, v_time_out + 2 * C_RESOLUTION, ERROR,
+                           v_time_out - C_RPM_EDGE_TOL, v_time_out + C_RPM_EDGE_TOL, ERROR,
                            "interval at the speed change = mean of the two time_per_edge", C_SCOPE, ID_SEQUENCER_SUB);
       check_checker(shared_th_event_log, C_ID, 6, "speed curves");
 
@@ -812,6 +791,7 @@ begin
         check_status(s, real(s) * C_DEG_PER_EDGE, "back at the start");
       end loop;
 
+      -- 5 + 3 + 7 + 10 = 25 edges without a gap; net position +5 - 3 + 7 - 10 = -1
       log_step("Mixed sequence +5 -3 +7 -10");
       init_encoder(config_with(0.0));
       v_t_start := now;
@@ -842,28 +822,21 @@ begin
       -- Invalid speeds
       log_step("Invalid speeds");
       init_encoder(C_DEFAULT);
-      begin_reject("time_per_edge 0 ns");
-      edges(FORWARD, 4, 0 ns);
-      end_reject("time_per_edge 0 ns");
-      begin_reject("time_per_edge -1 ns");
-      edges(FORWARD, 4, -1 ns);
-      end_reject("time_per_edge -1 ns");
-      begin_reject("0 rpm");
+      for i in C_BAD_TPES'range loop
+        begin_reject("time_per_edge " & to_string(C_BAD_TPES(i), ns));
+        edges(FORWARD, C_EDGES_PER_CYCLE, C_BAD_TPES(i));
+        end_reject("time_per_edge " & to_string(C_BAD_TPES(i), ns));
+      end loop;
+      for i in C_BAD_RPMS'range loop
+        begin_reject("rpm " & real'image(C_BAD_RPMS(i)));
+        show_config(v_config);
+        rotary_encoder_move_edges(FORWARD, C_EDGES_PER_CYCLE, C_BAD_RPMS(i), v_state, "invalid rpm", enc_if, config => v_config);
+        end_reject("rpm " & real'image(C_BAD_RPMS(i)));
+      end loop;
+      begin_reject("angle move at " & real'image(C_BAD_RPMS(0)) & " rpm");
       show_config(v_config);
-      rotary_encoder_move_edges(FORWARD, 4, 0.0, v_state, "0 rpm", enc_if, config => v_config);
-      end_reject("0 rpm");
-      begin_reject("-60 rpm");
-      show_config(v_config);
-      rotary_encoder_move_edges(FORWARD, 4, -60.0, v_state, "-60 rpm", enc_if, config => v_config);
-      end_reject("-60 rpm");
-      begin_reject("rpm not finite");
-      show_config(v_config);
-      rotary_encoder_move_edges(FORWARD, 4, real'high, v_state, "real'high rpm", enc_if, config => v_config);
-      end_reject("rpm not finite");
-      begin_reject("angle move at 0 rpm");
-      show_config(v_config);
-      rotary_encoder_move_angle(FORWARD, C_ANGLE_10, 0.0, v_state, "0 rpm", enc_if, config => v_config);
-      end_reject("angle move at 0 rpm");
+      rotary_encoder_move_angle(FORWARD, C_ANGLE_10, C_BAD_RPMS(0), v_state, "invalid rpm", enc_if, config => v_config);
+      end_reject("angle move at " & real'image(C_BAD_RPMS(0)) & " rpm");
       check_status(0, 0.0, "after the rejected calls");
 
     --============================================================================================================================
@@ -920,6 +893,7 @@ begin
                                v_config.index_position, v_config.cycles_per_rev, v_config.index_inverted, v_activations,
                                "cycles_per_rev " & to_string(C_INDEX_CPRS(c)) & ", index_position " & to_string(C_INDEX_POSITIONS(p)) &
                                ", " & to_string(d));
+            -- index_stimulus goes forward and back: at least C_INDEX_REVS pulses each way
             check_value(v_activations >= 2 * C_INDEX_REVS, ERROR, "at least " & to_string(C_INDEX_REVS) &
                         " index pulses per direction", C_SCOPE, ID_SEQUENCER_SUB);
             check_checker(shared_th_event_log, C_ID, 0, "index stimulus");
@@ -947,7 +921,7 @@ begin
       end loop;
 
       log_step("Width 2 at 00, zero state 00: Z active while B is low, at positions 0 and 1");
-      init_encoder(index_config(C_AB_00, C_AB_00, C_WIDE_INDEX));
+      init_encoder(index_config("00", "00", 2));  -- zero state 00, index state 00, width 2
       for i in C_WIDE_POSITIONS'range loop
         go_to_position(C_WIDE_POSITIONS(i));
         check_value(enc_if.z, C_WIDE_Z(i), MATCH_EXACT, ERROR, "Z at position " & to_string(C_WIDE_POSITIONS(i)), C_SCOPE,
@@ -959,21 +933,12 @@ begin
 
       -- The index is placed relative to the zero state (index state 00, width 1)
       log_step("Index state 00 with zero state 00 (Z at 0 deg) and 11 (Z at 9 deg, position 2)");
-      for z in 0 to 1 loop
-        if z = 0 then
-          init_encoder(index_config(C_AB_00, C_AB_00, 1));
-        else
-          init_encoder(index_config(C_AB_11, C_AB_00, 1));
-        end if;
+      for z in C_PLACEMENT_ZERO_STATES'range loop
+        init_encoder(index_config(C_PLACEMENT_ZERO_STATES(z), "00", 1));  -- index state 00, width 1
         for p in 0 to C_EDGES_PER_CYCLE - 1 loop
           go_to_position(p);
-          if z = 0 then
-            check_value(enc_if.z, C_Z_ZERO_00(p), MATCH_EXACT, ERROR, "zero state 00, Z at position " & to_string(p), C_SCOPE,
-                        ID_SEQUENCER_SUB);
-          else
-            check_value(enc_if.z, C_Z_ZERO_11(p), MATCH_EXACT, ERROR, "zero state 11, Z at position " & to_string(p), C_SCOPE,
-                        ID_SEQUENCER_SUB);
-          end if;
+          check_value(enc_if.z, C_PLACEMENT_Z(z)(p), MATCH_EXACT, ERROR, "zero state " & to_string(C_PLACEMENT_ZERO_STATES(z)) &
+                      ", Z at position " & to_string(p), C_SCOPE, ID_SEQUENCER_SUB);
         end loop;
       end loop;
 
@@ -983,44 +948,44 @@ begin
       log_step("Invalid index configuration");
       init_encoder(C_DEFAULT);
       v_bad_config                := C_DEFAULT;
-      v_bad_config.cycles_per_rev := 0;
-      reject_move(v_bad_config, "cycles_per_rev 0");
+      v_bad_config.cycles_per_rev := C_BAD_CPR;
+      reject_move(v_bad_config, "cycles_per_rev " & to_string(C_BAD_CPR));
       for i in C_BAD_WIDTHS'range loop
         v_bad_config             := C_DEFAULT;
         v_bad_config.index_width := C_BAD_WIDTHS(i);
         reject_move(v_bad_config, "index_width " & to_string(C_BAD_WIDTHS(i)));
       end loop;
       v_bad_config             := C_DEFAULT;
-      v_bad_config.index_state := C_BAD_INDEX_STATE;
-      reject_move(v_bad_config, "index_state " & to_string(C_BAD_INDEX_STATE));
-      begin_reject("init with index_state " & to_string(C_BAD_INDEX_STATE));
+      v_bad_config.index_state := "0X";  -- Invalid level
+      reject_move(v_bad_config, "index_state " & to_string(v_bad_config.index_state));
+      begin_reject("init with index_state " & to_string(v_bad_config.index_state));
       show_config(v_bad_config);
       rotary_encoder_init(v_state, "invalid index state", enc_if, config => v_bad_config);
-      end_reject("init with index_state " & to_string(C_BAD_INDEX_STATE));
+      end_reject("init with index_state " & to_string(v_bad_config.index_state));
       check_status(0, 0.0, "after the rejected calls");
 
       log_step("With index disabled, width and index state are not checked");
       v_bad_config               := C_DEFAULT;
       v_bad_config.index_enabled := false;
       v_bad_config.index_width   := C_BAD_WIDTHS(0);
-      v_bad_config.index_state   := C_BAD_INDEX_STATE;
+      v_bad_config.index_state   := "0X";
       check_accepted(v_bad_config, "index disabled, width " & to_string(C_BAD_WIDTHS(0)) & ", index state " &
-                     to_string(C_BAD_INDEX_STATE));
+                     to_string(v_bad_config.index_state));
 
     --============================================================================================================================
     elsif GC_TESTCASE = "bounce" then
       -- Bounce disabled: one event per edge
       log_step("Bounce disabled");
       init_encoder(C_DEFAULT);
-      edges(FORWARD, C_BOUNCE_EDGES, C_BOUNCE_TPE);
+      edges(FORWARD, 20, C_BOUNCE_TPE);
       v_num := 0;
       for i in 0 to shared_th_event_log.count(C_ID) - 1 loop
         if shared_th_event_log.get(C_ID, i).a_changed or shared_th_event_log.get(C_ID, i).b_changed then
           v_num := v_num + 1;
         end if;
       end loop;
-      check_value(v_num, C_BOUNCE_EDGES, ERROR, "A/B events = edges", C_SCOPE, ID_SEQUENCER_SUB);
-      check_checker(shared_th_event_log, C_ID, C_BOUNCE_EDGES, "bounce disabled");
+      check_value(v_num, 20, ERROR, "A/B events = edges", C_SCOPE, ID_SEQUENCER_SUB);
+      check_checker(shared_th_event_log, C_ID, 20, "bounce disabled");
 
       -- Random placement over one revolution that crosses the index once
       log_step("Bounce enabled, random placement, one revolution across the index");
@@ -1031,7 +996,7 @@ begin
       edges(FORWARD, C_EDGES_PER_REV, C_BOUNCE_TPE);
       check_bounce(shared_th_event_log, C_ID, v_t_start, C_EDGES_PER_REV, C_BOUNCE_TPE, 2 * C_BOUNCE_PULSES, C_BOUNCE_WINDOW,
                    "random placement");
-      check_value(shared_th_event_log.num_z_events(C_ID), 2, ERROR, "Z does not bounce: 2 events for one index pulse",
+      check_value(shared_th_event_log.num_z_events(C_ID), C_Z_EVENTS_PER_PULSE, ERROR, "Z does not bounce: one index pulse",
                   C_SCOPE, ID_SEQUENCER_SUB);
       check_checker(shared_th_event_log, C_ID, C_EDGES_PER_REV, "bounce enabled");
 
@@ -1039,26 +1004,28 @@ begin
     elsif GC_TESTCASE = "bounce_placement" then
       -- Even placement: toggle i at i * window / (toggles + 1)
       log_step("Even placement");
-      init_encoder(bounce_config(BOUNCE_EVEN, C_EVEN_PULSES, C_EVEN_WINDOW));
+      -- 3 pulses (6 toggles) in a 7 us window: toggle i at i * 1 us after each of 4 edges
+      init_encoder(bounce_config(BOUNCE_EVEN, 3, 7 us));
       v_t_start := now;
-      edges(FORWARD, C_EVEN_EDGES, C_BOUNCE_TPE);
-      wait for C_EVEN_WINDOW; -- The window outlasts the move (half an edge interval after the last edge)
-      check_bounce(shared_th_event_log, C_ID, v_t_start, C_EVEN_EDGES, C_BOUNCE_TPE, 2 * C_EVEN_PULSES, C_EVEN_WINDOW,
+      edges(FORWARD, 4, C_BOUNCE_TPE);
+      wait for 7 us; -- The window outlasts the move (half an edge interval after the last edge)
+      check_bounce(shared_th_event_log, C_ID, v_t_start, 4, C_BOUNCE_TPE, 6, 7 us,
                    "even placement");
-      for k in 1 to C_EVEN_EDGES loop
+      for k in 1 to 4 loop
         v_edge_t := v_t_start + (2 * k - 1) * C_BOUNCE_TPE / 2;
-        for i in 1 to 2 * C_EVEN_PULSES loop
-          check_event_time((k - 1) * (1 + 2 * C_EVEN_PULSES) + i, v_edge_t + i * C_EVEN_WINDOW / (2 * C_EVEN_PULSES + 1),
+        for i in 1 to 6 loop
+          check_event_time((k - 1) * (1 + 6) + i, v_edge_t + i * 1 us,
                            C_RESOLUTION, "edge " & to_string(k) & ", even toggle " & to_string(i));
         end loop;
       end loop;
 
       -- Random placement, the same seed twice (logs C_ID and C_ID_CMP), then another seed (log C_ID_CMP)
       log_step("Random placement: same seed, same times; another seed, other times");
+      -- Run 0: reference (log C_ID); run 1: same seed, run 2: another seed (both log C_ID_CMP)
       for run in 0 to 2 loop
         v_bad_config := bounce_config(BOUNCE_RANDOM, C_BOUNCE_PULSES, C_BOUNCE_WINDOW);
         if run = 2 then
-          v_bad_config.rand_seed1 := C_OTHER_SEED;
+          v_bad_config.rand_seed1 := 12345;
         end if;
         if run = 0 then
           select_log(C_ID);
@@ -1069,10 +1036,10 @@ begin
         v_run_start(run) := now;
         edges(FORWARD, C_REPRO_EDGES, C_BOUNCE_TPE);
         check_bounce(shared_th_event_log, log_id, v_run_start(run), C_REPRO_EDGES, C_BOUNCE_TPE, 2 * C_BOUNCE_PULSES,
-                     C_BOUNCE_WINDOW, "random placement, run " & to_string(run + 1));
+                     C_BOUNCE_WINDOW, "random placement, run " & to_string(run));
         if run > 0 then
           compare_logs(shared_th_event_log, C_ID, v_run_start(0), C_ID_CMP, v_run_start(run), false, v_match);
-          check_value(v_match, run = 1, ERROR, "toggle times equal to run 1: " & to_string(run = 1), C_SCOPE, ID_SEQUENCER_SUB);
+          check_value(v_match, run = 1, ERROR, "toggle times equal to run 0: " & to_string(run = 1), C_SCOPE, ID_SEQUENCER_SUB);
         end if;
       end loop;
       select_log(C_ID);
@@ -1113,17 +1080,19 @@ begin
     --============================================================================================================================
     elsif GC_TESTCASE = "bounce_with_jitter" then
       -- Bounce follows the jittered edge: one revolution across the index, random placement
-      log_step("Bounce with jitter " & to_string(C_BOUNCE_JITTER, 1) & " deg, one revolution across the index");
+      -- 20 deg jitter at C_BOUNCE_TPE = 10 us moves an edge by up to 2.22 us, so the 4 us bounce window always ends
+      -- before the earliest next edge
+      log_step("Bounce with jitter 20 deg, one revolution across the index");
       v_bad_config             := bounce_config(BOUNCE_RANDOM, C_BOUNCE_PULSES, C_BOUNCE_WINDOW);
-      v_bad_config.jitter      := C_BOUNCE_JITTER;
+      v_bad_config.jitter      := 20.0;
       v_bad_config.start_angle := real(C_EDGES_PER_REV / 2) * C_DEG_PER_EDGE; -- Half a revolution away from the index
       init_encoder(v_bad_config);
       v_t_start := now;
       edges(FORWARD, C_EDGES_PER_REV, C_BOUNCE_TPE);
       check_duration(C_EDGES_PER_REV * C_BOUNCE_TPE, 0 ns, "completion unchanged by bounce and jitter");
       check_bounce(shared_th_event_log, C_ID, v_t_start, C_EDGES_PER_REV, C_BOUNCE_TPE, 2 * C_BOUNCE_PULSES, C_BOUNCE_WINDOW,
-                   "bounce with jitter", C_SCOPE, C_BOUNCE_TPE * (C_BOUNCE_JITTER / C_DEG_ELECTRICAL_PER_EDGE));
-      check_value(shared_th_event_log.num_z_events(C_ID), 2, ERROR, "Z does not bounce: 2 events for one index pulse",
+                   "bounce with jitter", C_SCOPE, C_BOUNCE_TPE * (v_config.jitter / C_DEG_ELECTRICAL_PER_EDGE));
+      check_value(shared_th_event_log.num_z_events(C_ID), C_Z_EVENTS_PER_PULSE, ERROR, "Z does not bounce: one index pulse",
                   C_SCOPE, ID_SEQUENCER_SUB);
       check_checker(shared_th_event_log, C_ID, C_EDGES_PER_REV, "bounce with jitter");
 
@@ -1159,38 +1128,38 @@ begin
 
       -- Edges pulled early by jitter cut off a bounce whose window fits at ideal timing. One alert per
       -- command, every edge still from a settled state, so the decoder sees only legal forward edges.
-      log_step("Jitter " & to_string(C_CUT_JITTER, 1) & " deg cuts off bounce_window " &
-               to_string(C_JITTER_CUT_WINDOW, ns) & ", " & to_string(C_JITTER_CUT_CMDS) & " commands");
-      v_bad_config        := bounce_config(BOUNCE_RANDOM, C_BOUNCE_PULSES, C_JITTER_CUT_WINDOW);
-      v_bad_config.jitter := C_CUT_JITTER;
+      -- A 6 us window fits at ideal timing (10 us per edge); 40 deg jitter pulls edges up to 4.44 us early. 2 commands
+      -- of 100 edges, so that jitter cuts off at least one bounce per command.
+      log_step("Jitter 40 deg cuts off bounce_window 6 us, 2 commands");
+      v_bad_config        := bounce_config(BOUNCE_RANDOM, C_BOUNCE_PULSES, 6 us);
+      v_bad_config.jitter := 40.0;
       init_encoder(v_bad_config);
-      for cmd in 1 to C_JITTER_CUT_CMDS loop
+      for cmd in 1 to 2 loop
         increment_expected_alerts(TB_WARNING, 1, "bounce cut-off by a jittered edge, once per command");
         v_alerts := get_alert_counter(TB_WARNING);
-        edges(FORWARD, C_JITTER_CUT_EDGES, C_BOUNCE_TPE);
+        edges(FORWARD, 100, C_BOUNCE_TPE);
         check_value(get_alert_counter(TB_WARNING) - v_alerts, 1, ERROR, "one cut-off alert in command " & to_string(cmd),
                     C_SCOPE, ID_SEQUENCER_SUB);
       end loop;
-      wait for C_JITTER_CUT_WINDOW; -- The bounce of the last edge ends
-      check_value(std_logic_vector'(enc_if.a & enc_if.b), tb_state(v_config.zero_state, C_JITTER_CUT_CMDS * C_JITTER_CUT_EDGES),
+      wait for 6 us; -- The bounce of the last edge ends
+      check_value(std_logic_vector'(enc_if.a & enc_if.b), tb_state(v_config.zero_state, 200),
                   MATCH_EXACT, ERROR, "settled at the final state", C_SCOPE, msg_id => ID_SEQUENCER_SUB);
-      check_checker(shared_th_event_log, C_ID, C_JITTER_CUT_CMDS * C_JITTER_CUT_EDGES, "jitter cuts off bounce");
+      check_checker(shared_th_event_log, C_ID, 200, "jitter cuts off bounce");
 
     --============================================================================================================================
     elsif GC_TESTCASE = "jitter" then
       -- Statistics over C_JITTER_EDGES edges, time form
       v_bad_config        := C_DEFAULT;
-      v_bad_config.jitter := C_JITTER;
-      log_step("Jitter " & to_string(C_JITTER, 1) & " deg, " & to_string(C_JITTER_EDGES) & " edges at " &
-               to_string(C_JITTER_TPE, ns));
+      v_bad_config.jitter := 40.0;  -- Electrical degrees
+      log_step("Jitter 40 deg, " & to_string(C_JITTER_EDGES) & " edges at 1 us");
       init_encoder(v_bad_config);
       v_t_start := now;
-      edges(FORWARD, C_JITTER_EDGES, C_JITTER_TPE);
-      check_duration(C_JITTER_EDGES * C_JITTER_TPE, 0 ns, "completion unchanged by jitter");
+      edges(FORWARD, C_JITTER_EDGES, 1 us);
+      check_duration(C_JITTER_EDGES * 1 us, 0 ns, "completion unchanged by jitter");
       for k in 1 to C_JITTER_EDGES loop
-        v_expected(k) := v_t_start + (2 * k - 1) * C_JITTER_TPE / 2;
+        v_expected(k) := v_t_start + (2 * k - 1) * 1 us / 2;
       end loop;
-      check_jitter_stats(shared_th_event_log, C_ID, 0, v_expected, C_JITTER_TPE * (C_JITTER / C_DEG_ELECTRICAL_PER_EDGE),
+      check_jitter_stats(shared_th_event_log, C_ID, 0, v_expected, 1 us * (v_config.jitter / C_DEG_ELECTRICAL_PER_EDGE),
                          C_RESOLUTION, "time form");
       check_value(shared_th_event_log.count(C_ID), C_JITTER_EDGES, ERROR, "edge count exact", C_SCOPE, ID_SEQUENCER_SUB);
       check_checker(shared_th_event_log, C_ID, C_JITTER_EDGES, "jitter, time form");
@@ -1200,14 +1169,14 @@ begin
         log_step("Jitter at " & to_string(C_JITTER_RPMS(r)) & " rpm");
         init_encoder(v_bad_config);
         v_t_start := now;
-        edges(FORWARD, C_SCALING_EDGES, real(C_JITTER_RPMS(r)));
-        for k in 1 to C_SCALING_EDGES loop
+        edges(FORWARD, 1000, real(C_JITTER_RPMS(r)));
+        for k in 1 to 1000 loop
           v_expected(k) := ideal_edge_time(v_t_start, k, C_JITTER_RPMS(r), C_CPR);
         end loop;
-        check_jitter_stats(shared_th_event_log, C_ID, 0, v_expected(1 to C_SCALING_EDGES),
-                           ideal_move_time(0 ns, 1, C_JITTER_RPMS(r), C_CPR) * (C_JITTER / C_DEG_ELECTRICAL_PER_EDGE),
-                           2 * C_RESOLUTION, to_string(C_JITTER_RPMS(r)) & " rpm");
-        check_checker(shared_th_event_log, C_ID, C_SCALING_EDGES, to_string(C_JITTER_RPMS(r)) & " rpm");
+        check_jitter_stats(shared_th_event_log, C_ID, 0, v_expected(1 to 1000),
+                           ideal_move_time(0 ns, 1, C_JITTER_RPMS(r), C_CPR) * (v_config.jitter / C_DEG_ELECTRICAL_PER_EDGE),
+                           C_RPM_EDGE_TOL, to_string(C_JITTER_RPMS(r)) & " rpm");
+        check_checker(shared_th_event_log, C_ID, 1000, to_string(C_JITTER_RPMS(r)) & " rpm");
       end loop;
 
       -- The same seed gives the same edge times (logs C_ID and C_ID_CMP)
@@ -1216,7 +1185,7 @@ begin
         select_log(C_ID + run);
         init_encoder(v_bad_config);
         v_run_start(run) := now;
-        edges(FORWARD, C_REPRO_EDGES, C_JITTER_TPE);
+        edges(FORWARD, C_REPRO_EDGES, 1 us);
       end loop;
       select_log(C_ID);
       compare_logs(shared_th_event_log, C_ID, v_run_start(0), C_ID_CMP, v_run_start(1), false, v_match);
@@ -1246,20 +1215,23 @@ begin
 
     --============================================================================================================================
     elsif GC_TESTCASE = "move_angle" then
-      -- Edges at the boundary crossings, the end exactly at the target, durations in both forms
+      -- Edges at the boundary crossings, the end exactly at the target, durations in both forms. Boundaries lie at
+      -- +-2.25, +-6.75, ... deg (half an edge angle around each state centre).
       log_step("Three 1 deg moves, the edge at half an edge angle");
       init_encoder(config_with(0.0));
       v_t_start := now;
       for i in 1 to 3 loop
         angle(FORWARD, C_ANGLE_1, C_TPE_ANGLE);
         check_duration(i * C_TIME_PER_DEG, i * C_RESOLUTION, to_string(i) & " x 1 deg");
+        -- The first boundary (2.25 deg) is crossed in the third move
         check_value(shared_th_event_log.count(C_ID), i / 3, ERROR, "edges after " & to_string(i) & " moves", C_SCOPE, ID_SEQUENCER_SUB);
       end loop;
       check_event_time(0, v_t_start + C_TIME_PER_DEG * (0.5 * C_DEG_PER_EDGE), C_RESOLUTION, "edge at half an edge angle");
       check_checker(shared_th_event_log, C_ID, 1, "3 x 1 deg");
       check_status(1, 3.0 * C_ANGLE_1, "3 x 1 deg");
 
-      log_step("" & to_string(C_ANGLE_10, 1) & " deg from 0 deg: 2 edges, ends at the target");
+      -- 10 deg crosses the boundaries at 2.25 and 6.75 deg: 2 edges, position 2
+      log_step(to_string(C_ANGLE_10, 1) & " deg from 0 deg: 2 edges, ends at the target");
       init_encoder(config_with(0.0));
       v_t_start := now;
       angle(FORWARD, C_ANGLE_10, C_TPE_ANGLE);
@@ -1274,6 +1246,7 @@ begin
       check_checker(shared_th_event_log, C_ID, -2, "reverse");
       check_status(-2, -C_ANGLE_10, "reverse");
 
+      -- 10 deg (2 edges), then 1 deg (11 deg, no further edge)
       log_step("Durations in the rpm form, also without an edge");
       increment_expected_alerts(TB_WARNING, 1, "UVVM time stamp truncation (moves end between whole ns, shown once)");
       init_encoder(config_with(0.0));
@@ -1301,23 +1274,25 @@ begin
       log_step("One revolution in 1 deg moves");
       init_encoder(config_with(0.0));
       for i in 1 to C_DEG_PER_REV loop
-        angle(FORWARD, 1.0, C_TPE_ANGLE_FAST);
+        angle(FORWARD, C_ANGLE_1, C_TPE_ANGLE_FAST);
       end loop;
       check_checker(shared_th_event_log, C_ID, C_EDGES_PER_REV, "1 deg moves");
       v_status := rotary_encoder_get_status(v_state);
       check_value(v_status.position, C_EDGES_PER_REV, ERROR, "position after 1 deg moves", C_SCOPE, ID_SEQUENCER_SUB);
       check_value(v_status.angle, real(C_DEG_PER_REV), ERROR, "angle exactly one revolution after 1 deg moves", C_SCOPE, ID_SEQUENCER_SUB);
 
-      log_step("One revolution in " & to_string(C_SMALL_STEP, 1) & " deg moves");
+      -- 3600 moves of 0.1 deg: 0.1 is not exact in binary floating point
+      log_step("One revolution in 0.1 deg moves");
       init_encoder(config_with(0.0));
-      for i in 1 to integer(real(C_DEG_PER_REV) / C_SMALL_STEP) loop
-        angle(FORWARD, C_SMALL_STEP, C_TPE_ANGLE_FAST);
+      for i in 1 to 3600 loop
+        angle(FORWARD, 0.1, C_TPE_ANGLE_FAST);
       end loop;
       check_checker(shared_th_event_log, C_ID, C_EDGES_PER_REV, "small moves");
       v_status := rotary_encoder_get_status(v_state);
       check_value(v_status.position, C_EDGES_PER_REV, ERROR, "position after small moves", C_SCOPE, ID_SEQUENCER_SUB);
       check_value(v_status.angle, real(C_DEG_PER_REV), ERROR, "angle exactly one revolution after small moves", C_SCOPE, ID_SEQUENCER_SUB);
 
+      -- Each pair moves 2 edge angles
       log_step("One revolution in pairs of (1 edge, 1 edge angle)");
       init_encoder(config_with(0.0));
       for i in 1 to C_EDGES_PER_REV / 2 loop
@@ -1329,6 +1304,8 @@ begin
       check_value(v_status.angle, real(C_DEG_PER_REV), ERROR, "angle exactly one revolution after the mixed sequence", C_SCOPE, ID_SEQUENCER_SUB);
       enable_log_msg(ID_BFM);
 
+      -- 2 deg + 4.5 deg + 1 deg = 7.5 deg: boundaries at 2.25 deg (during the edge move) and 6.75 deg (during the last
+      -- angle move); position 2. Three moves, each rounded once.
       log_step("2 deg, 1 edge, 1 deg: edges at 0.5 and 1.5 edge angles");
       init_encoder(config_with(0.0));
       v_t_start := now;
@@ -1362,23 +1339,24 @@ begin
       begin_reject("occurrence 0");
       move_to_state(FORWARD, C_STATES(0), 0, C_TPE);
       end_reject("occurrence 0");
-      begin_reject("target state " & to_string(C_BAD_TARGET));
-      move_to_state(FORWARD, C_BAD_TARGET, 1, C_TPE);
-      end_reject("target state " & to_string(C_BAD_TARGET));
-      begin_reject("time_per_edge 0 ns");
-      move_to_state(REVERSE, C_STATES(0), 1, 0 ns);
-      end_reject("time_per_edge 0 ns");
-      begin_reject("-60 rpm");
+      begin_reject("target state 0X");
+      move_to_state(FORWARD, "0X", 1, C_TPE);
+      end_reject("target state 0X");
+      begin_reject("time_per_edge " & to_string(C_BAD_TPES(0), ns));
+      move_to_state(REVERSE, C_STATES(0), 1, C_BAD_TPES(0));
+      end_reject("time_per_edge " & to_string(C_BAD_TPES(0), ns));
+      begin_reject("rpm " & real'image(-real(C_ANGLE_RPM)));
       show_config(v_config);
-      rotary_encoder_move_to_state(FORWARD, C_STATES(0), 1, -real(C_ANGLE_RPM), v_state, "-60 rpm", enc_if, config => v_config);
-      end_reject("-60 rpm");
+      rotary_encoder_move_to_state(FORWARD, C_STATES(0), 1, -real(C_ANGLE_RPM), v_state, "negative rpm", enc_if, config => v_config);
+      end_reject("rpm " & real'image(-real(C_ANGLE_RPM)));
       check_status(0, 0.0, "after the rejected move-to-state calls");
       check_value(rotary_encoder_get_status(v_state).ab, C_DEFAULT.zero_state, MATCH_EXACT, ERROR, "status AB unchanged",
                   C_SCOPE, msg_id => ID_SEQUENCER_SUB);
 
     --============================================================================================================================
     elsif GC_TESTCASE = "speed_conversion" then
-      -- Conversion functions. Expected values are hand-calculated.
+      -- Conversion functions. Expected values are hand-calculated for C_CPR = 20 (80 edges per revolution):
+      -- time_per_edge = 60 s / (rpm * 80), e.g. 60 rpm -> 12.5 ms; 60 rpm = one revolution per second = 360 deg/s.
       log_step("Rpm <-> time_per_edge, rpm <-> deg/s");
       check_value(rotary_encoder_rpm_to_time_per_edge(1.0, C_CPR), 750 ms, ERROR, "1 rpm", C_SCOPE, ID_SEQUENCER_SUB);
       check_value(rotary_encoder_rpm_to_time_per_edge(60.0, C_CPR), 12500 us, ERROR, "60 rpm", C_SCOPE, ID_SEQUENCER_SUB);
@@ -1393,33 +1371,34 @@ begin
       check_value(rotary_encoder_rpm_to_deg_per_sec(60.0), 360.0, ERROR, "60 rpm = 360 deg/s", C_SCOPE, ID_SEQUENCER_SUB);
       check_value(rotary_encoder_deg_per_sec_to_rpm(360.0), 60.0, ERROR, "360 deg/s = 60 rpm", C_SCOPE, ID_SEQUENCER_SUB);
 
+      -- The 5 invalid calls below: cycles_per_rev 0 (twice), 0 rpm, time_per_edge 0 ns and -1 ns
       log_step("Invalid arguments");
       increment_expected_alerts_and_stop_limit(TB_ERROR, 5, "invalid conversions");
       v_alerts   := get_alert_counter(TB_ERROR);
-      v_time_out := rotary_encoder_rpm_to_time_per_edge(60.0, 0);
+      v_time_out := rotary_encoder_rpm_to_time_per_edge(60.0, C_BAD_CPR);
       v_time_out := rotary_encoder_rpm_to_time_per_edge(0.0, C_CPR);
       v_real_out := rotary_encoder_time_per_edge_to_rpm(0 ns, C_CPR);
       v_real_out := rotary_encoder_time_per_edge_to_rpm(-1 ns, C_CPR);
-      v_real_out := rotary_encoder_time_per_edge_to_rpm(1 ms, 0);
+      v_real_out := rotary_encoder_time_per_edge_to_rpm(1 ms, C_BAD_CPR);
       check_value(get_alert_counter(TB_ERROR) - v_alerts, 5, ERROR, "one TB_ERROR per invalid call", C_SCOPE, ID_SEQUENCER_SUB);
 
     --============================================================================================================================
     elsif GC_TESTCASE = "move_to_state" then
       -- Move to state. Expected edges at the boundaries between the start angle and the target centre, each
       -- (distance to the boundary) / edge angle * T after the start; the move completes at the target centre.
-      log_step("Move to state, time form " & to_string(C_TO_STATE_TPE, ns));
+      log_step("Move to state, time form 1 us");
       increment_expected_alerts(TB_WARNING, 1, "UVVM time stamp truncation (the 10 deg case ends between whole ns, shown once)");
       for i in C_TO_STATE_CASES'range loop
         init_encoder(config_with(C_TO_STATE_CASES(i).start_angle));
         v_t_start := now;
-        move_to_state(C_TO_STATE_CASES(i).direction, C_TO_STATE_CASES(i).target, C_TO_STATE_CASES(i).occurrence, C_TO_STATE_TPE);
+        move_to_state(C_TO_STATE_CASES(i).direction, C_TO_STATE_CASES(i).target, C_TO_STATE_CASES(i).occurrence, 1 us);
         v_num := abs(C_TO_STATE_CASES(i).end_position - C_TO_STATE_CASES(i).start_position);
         v_dir := dir_sign(C_TO_STATE_CASES(i).direction);
-        check_duration(C_TO_STATE_TPE * (abs(real(C_TO_STATE_CASES(i).end_position) * C_DEG_PER_EDGE - C_TO_STATE_CASES(i).start_angle) /
+        check_duration(1 us * (abs(real(C_TO_STATE_CASES(i).end_position) * C_DEG_PER_EDGE - C_TO_STATE_CASES(i).start_angle) /
                        C_DEG_PER_EDGE), C_RESOLUTION, "case " & to_string(i));
         for k in 1 to v_num loop
           -- Boundary k in the move direction: (start_position + dir * (k - 1/2)) edge angles
-          check_event_time(k - 1, v_t_start + C_TO_STATE_TPE * (abs((real(C_TO_STATE_CASES(i).start_position) + real(v_dir) * (real(k) - 0.5)) *
+          check_event_time(k - 1, v_t_start + 1 us * (abs((real(C_TO_STATE_CASES(i).start_position) + real(v_dir) * (real(k) - 0.5)) *
                            C_DEG_PER_EDGE - C_TO_STATE_CASES(i).start_angle) / C_DEG_PER_EDGE), C_RESOLUTION, "case " & to_string(i));
         end loop;
         check_value(shared_th_event_log.num_edges(C_ID), v_num, ERROR, "edge count, case " & to_string(i), C_SCOPE, ID_SEQUENCER_SUB);
@@ -1429,9 +1408,9 @@ begin
 
     --============================================================================================================================
     elsif GC_TESTCASE = "center_state" then
-      -- Centre state
-      log_step("From " & to_string(C_CENTER_FROM, 1) & " deg");
-      init_encoder(config_with(C_CENTER_FROM));
+      -- 10 deg lies in position 2 (6.75 to 11.25 deg): centred to 9 deg
+      log_step("From 10.0 deg");
+      init_encoder(config_with(10.0));
       center;
       check_status(2, 2.0 * C_DEG_PER_EDGE, "centred");
       check_zero_time_no_event("centre state");
@@ -1439,34 +1418,37 @@ begin
       check_status(2, 2.0 * C_DEG_PER_EDGE, "already on the centre: unchanged");
       check_zero_time_no_event("centre state on the centre");
 
-      log_step("On the boundary at " & to_string(C_BOUNDARY_ANGLE, 2) & " deg: the state moved into");
+      -- 6.75 deg is the boundary between positions 1 and 2 (1.5 edge angles): a forward move ending there is in
+      -- position 2, a reverse move from position 2 ending there is in position 1
+      log_step("On the boundary at 6.75 deg: the state moved into");
       init_encoder(config_with(0.0));
-      angle(FORWARD, C_BOUNDARY_ANGLE, C_TPE_ANGLE);
+      angle(FORWARD, 1.5 * C_DEG_PER_EDGE, C_TPE_ANGLE);
       center;
       check_status(2, 2.0 * C_DEG_PER_EDGE, "forward move ending on the boundary");
       check_zero_time_no_event("centre state after the forward move");
       check_checker(shared_th_event_log, C_ID, 2, "forward move ending on the boundary");
       init_encoder(config_with(2.0 * C_DEG_PER_EDGE));
-      angle(REVERSE, 2.0 * C_DEG_PER_EDGE - C_BOUNDARY_ANGLE, C_TPE_ANGLE);
+      angle(REVERSE, 0.5 * C_DEG_PER_EDGE, C_TPE_ANGLE);
       center;
       check_status(1, C_DEG_PER_EDGE, "reverse move ending on the boundary");
       check_zero_time_no_event("centre state after the reverse move");
       check_checker(shared_th_event_log, C_ID, -1, "reverse move ending on the boundary");
 
-      -- With edge offsets that move the boundaries, centring must still give the ideal centre
-      log_step("With all four edge offsets at +-" & to_string(C_EDGE_OFFSET, 1) & " deg");
+      -- With edge offsets that move the boundaries (44 deg electrical, all four edges, + and -), centring must still
+      -- give the ideal centre
+      log_step("With all four edge offsets at +-44.0 deg");
       for s in -1 to 1 loop
         next when s = 0;
         for i in C_OFFSET_ANGLES'range loop
           v_bad_config               := config_with(C_OFFSET_ANGLES(i));
-          v_bad_config.a_rise_offset := real(s) * C_EDGE_OFFSET;
-          v_bad_config.a_fall_offset := real(s) * C_EDGE_OFFSET;
-          v_bad_config.b_rise_offset := real(s) * C_EDGE_OFFSET;
-          v_bad_config.b_fall_offset := real(s) * C_EDGE_OFFSET;
+          v_bad_config.a_rise_offset := real(s) * 44.0;
+          v_bad_config.a_fall_offset := real(s) * 44.0;
+          v_bad_config.b_rise_offset := real(s) * 44.0;
+          v_bad_config.b_fall_offset := real(s) * 44.0;
           init_encoder(v_bad_config);
           v_t_start := now;
           center;
-          check_zero_time_no_event("offsets " & to_string(real(s) * C_EDGE_OFFSET, 1) & " deg, from " & to_string(C_OFFSET_ANGLES(i), 1) & " deg");
+          check_zero_time_no_event("offsets " & to_string(real(s) * 44.0, 1) & " deg, from " & to_string(C_OFFSET_ANGLES(i), 1) & " deg");
         end loop;
       end loop;
 
