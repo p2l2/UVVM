@@ -159,20 +159,28 @@ package rotary_encoder_bfm_pkg is
     ab             : std_logic_vector(1 downto 0); -- Logical state last driven
     z_active       : boolean;                      -- Logical Z last driven
     cycles_per_rev : integer;                      -- Geometry latched at init and at each motion start
+    edge_offset    : integer_vector(0 to 3);       -- Geometry: boundary offsets in quanta, by the Gray index of the state below
+    a_stuck        : std_logic;                    -- Stuck levels last applied to the outputs, '-' = not stuck
+    b_stuck        : std_logic;
+    z_stuck        : std_logic;
     motion_active  : boolean;
     motion         : t_rotary_encoder_motion;
     seg_t0         : time;                         -- Segment anchor
     seg_p0         : integer;
     seg_o0         : integer;
     seg_dir        : integer;                      -- +1 forward, -1 reverse
-    seg_len        : real;                         -- Segment length in quanta
+    seg_moving     : boolean;                      -- false: the segment has 0 rpm
+    seg_bounded    : boolean;                      -- true: a move that ends after seg_len
+    seg_len        : real;                         -- Segment length in quanta (moves)
+    seg_end        : time;                         -- End of the current profile entry; time'high if none
+    profile_idx    : natural;                      -- Current profile entry
+    profile_t0     : time;                         -- Start of the current profile pass
     tpe_int        : time;                         -- time_per_edge: whole resolution units
     tpe_frac       : real;                         -- time_per_edge: fraction of a resolution unit
     tpe_res        : real;                         -- time_per_edge in resolution units
     speed_rpm      : real;                         -- Unsigned speed of the motion
     edges          : natural;                      -- Edges emitted by the current motion
     rpm            : real;                         -- Signed current speed, 0.0 at rest
-    last_rpm       : real;                         -- Last non-zero signed speed
     last_edge_time : time;
     seed1          : positive;                     -- Random seeds of bounce and jitter, taken from config at init
     seed2          : positive;
@@ -218,6 +226,14 @@ package rotary_encoder_bfm_pkg is
   function rotary_encoder_deg_per_sec_to_rpm(
     constant deg_per_sec : in real
   ) return real;
+
+  -- Speed profile of num_entries entries from rpm_start to rpm_end, linear in rpm: entry j = rpm_start + (rpm_end -
+  -- rpm_start) * j / (num_entries - 1). One entry returns rpm_start.
+  impure function rotary_encoder_linear_ramp(
+    constant rpm_start   : in real;
+    constant rpm_end     : in real;
+    constant num_entries : in integer
+  ) return real_vector;
 
   ---------------------------------------------------------------------------------
   -- Status at the current time
@@ -329,6 +345,86 @@ package rotary_encoder_bfm_pkg is
   );
 
   ---------------------------------------------------------------------------------
+  -- Timed rotation: rotates for duration (> 0 ns), then stops at once at the reached angle
+  ---------------------------------------------------------------------------------
+  -- Signed rpm (positive = forward), 0.0 is legal
+  procedure rotary_encoder_rotate(
+    constant rpm          : in    real;
+    constant duration     : in    time;
+    variable state        : inout t_rotary_encoder_state;
+    constant msg          : in    string;
+    signal   encoder_if   : inout t_rotary_encoder_if;
+    constant scope        : in    string                      := C_BFM_SCOPE;
+    constant msg_id_panel : in    t_msg_id_panel              := shared_msg_id_panel;
+    constant config       : in    t_rotary_encoder_bfm_config := C_ROTARY_ENCODER_BFM_CONFIG_DEFAULT
+  );
+
+  procedure rotary_encoder_rotate(
+    constant direction     : in    t_rotary_encoder_direction;
+    constant time_per_edge : in    time;
+    constant duration      : in    time;
+    variable state         : inout t_rotary_encoder_state;
+    constant msg           : in    string;
+    signal   encoder_if    : inout t_rotary_encoder_if;
+    constant scope         : in    string                      := C_BFM_SCOPE;
+    constant msg_id_panel  : in    t_msg_id_panel              := shared_msg_id_panel;
+    constant config        : in    t_rotary_encoder_bfm_config := C_ROTARY_ENCODER_BFM_CONFIG_DEFAULT
+  );
+
+  -- Speed profile: signed rpm entries, each for time_per_entry; profile_end selects hold, stop or repeat after the last
+  -- entry. With PROFILE_STOP the procedure returns at the end of the profile if that comes before duration.
+  procedure rotary_encoder_rotate(
+    constant profile        : in    real_vector;
+    constant time_per_entry : in    time;
+    constant profile_end    : in    t_rotary_encoder_profile_end;
+    constant duration       : in    time;
+    variable state          : inout t_rotary_encoder_state;
+    constant msg            : in    string;
+    signal   encoder_if     : inout t_rotary_encoder_if;
+    constant scope          : in    string                      := C_BFM_SCOPE;
+    constant msg_id_panel   : in    t_msg_id_panel              := shared_msg_id_panel;
+    constant config         : in    t_rotary_encoder_bfm_config := C_ROTARY_ENCODER_BFM_CONFIG_DEFAULT
+  );
+
+  ---------------------------------------------------------------------------------
+  -- Fault events. Device faults (edge offsets, stuck outputs) are set in the configuration.
+  ---------------------------------------------------------------------------------
+  -- Places the shaft at angle (degrees) in zero time; the outputs change from the old to the new state in one delta
+  procedure rotary_encoder_set_angle(
+    constant angle        : in    real;
+    variable state        : inout t_rotary_encoder_state;
+    constant msg          : in    string;
+    signal   encoder_if   : inout t_rotary_encoder_if;
+    constant scope        : in    string                      := C_BFM_SCOPE;
+    constant msg_id_panel : in    t_msg_id_panel              := shared_msg_id_panel;
+    constant config       : in    t_rotary_encoder_bfm_config := C_ROTARY_ENCODER_BFM_CONFIG_DEFAULT
+  );
+
+  -- Moves the shaft by num_edges in zero time, keeping the sub-edge fraction. 2 edges (mod 4) give an illegal transition.
+  procedure rotary_encoder_jump_edges(
+    constant direction    : in    t_rotary_encoder_direction;
+    constant num_edges    : in    natural;
+    variable state        : inout t_rotary_encoder_state;
+    constant msg          : in    string;
+    signal   encoder_if   : inout t_rotary_encoder_if;
+    constant scope        : in    string                      := C_BFM_SCOPE;
+    constant msg_id_panel : in    t_msg_id_panel              := shared_msg_id_panel;
+    constant config       : in    t_rotary_encoder_bfm_config := C_ROTARY_ENCODER_BFM_CONFIG_DEFAULT
+  );
+
+  -- Pulse of width on A or B, then back to the previous level. A stuck output does not pulse.
+  procedure rotary_encoder_glitch(
+    constant channel      : in    t_rotary_encoder_channel;
+    constant width        : in    time;
+    variable state        : inout t_rotary_encoder_state;
+    constant msg          : in    string;
+    signal   encoder_if   : inout t_rotary_encoder_if;
+    constant scope        : in    string                      := C_BFM_SCOPE;
+    constant msg_id_panel : in    t_msg_id_panel              := shared_msg_id_panel;
+    constant config       : in    t_rotary_encoder_bfm_config := C_ROTARY_ENCODER_BFM_CONFIG_DEFAULT
+  );
+
+  ---------------------------------------------------------------------------------
   -- Low-level motion engine. Used by the VVC; testbenches normally use the procedures above or the VVC.
   -- Calling sequence: set_motion, then run_motion in a loop in the same time step; halt_motion to stop.
   ---------------------------------------------------------------------------------
@@ -383,8 +479,16 @@ package body rotary_encoder_bfm_pkg is
   constant C_K               : integer := 900_000_000;
   constant C_HALF_K          : integer := C_K / 2;
   constant C_K_REAL          : real    := real(C_K);
-  constant C_QUANTA_PER_DEG  : real    := C_K_REAL / C_DEG_ELECTRICAL_EDGE; -- Per cycle per revolution: 1e7
+  -- Quanta per electrical degree: 1e7. A mechanical degree is cycles_per_rev electrical degrees.
+  constant C_QUANTA_PER_DEG_ELECTRICAL : real := C_K_REAL / C_DEG_ELECTRICAL_EDGE;
   constant C_MAX_EXACT       : real    := 9.0e15;         -- Largest distance in quanta held exactly (< 2**53)
+  constant C_MAX_EDGE_OFFSET : real    := C_DEG_ELECTRICAL_EDGE / 2.0; -- Edge offsets lie in the open interval +-45 deg
+  constant C_MAX_POSITION    : integer := integer'high / 2; -- Largest position a jump may reach, so that edge counts fit
+  constant C_NOT_STUCK       : std_logic := '-';
+
+  -- Next event of the active motion
+  type t_next_event is (NEXT_EDGE, NEXT_SEGMENT_END, NEXT_NONE);
+  constant C_NO_END          : time    := time'high;      -- Segment without an end time
 
   --==========================================================================================
   -- Time arithmetic
@@ -568,13 +672,34 @@ package body rotary_encoder_bfm_pkg is
     return 0.5 * v_narrowest;
   end function;
 
+  function is_stuck_level(
+    constant level : in std_logic
+  ) return boolean is
+  begin
+    return level = '0' or level = '1' or level = 'Z' or level = C_NOT_STUCK;
+  end function;
+
+  function stuck_error(
+    constant name  : in string;
+    constant level : in std_logic
+  ) return string is
+  begin
+    return name & " must be '0', '1', 'Z' or '" & to_string(C_NOT_STUCK) & "' (not stuck), was '" & to_string(level) & "'.";
+  end function;
+
   -- Why the signal configuration of config is invalid; "" if it is valid
   function signal_config_error(
     constant config     : in t_rotary_encoder_bfm_config;
     constant max_jitter : in real
   ) return string is
   begin
-    if config.index_enabled and (config.index_width < 1 or config.index_width > C_EDGES_PER_CYCLE) then
+    if not is_stuck_level(config.a_stuck) then
+      return stuck_error("a_stuck", config.a_stuck);
+    elsif not is_stuck_level(config.b_stuck) then
+      return stuck_error("b_stuck", config.b_stuck);
+    elsif not is_stuck_level(config.z_stuck) then
+      return stuck_error("z_stuck", config.z_stuck);
+    elsif config.index_enabled and (config.index_width < 1 or config.index_width > C_EDGES_PER_CYCLE) then
       return "index_width must be 1 to " & to_string(C_EDGES_PER_CYCLE) & ", was " & to_string(config.index_width) & ".";
     elsif config.index_enabled and gray_index(config.index_state) < 0 then
       return "index_state must be a 2-bit state of '0'/'1', was " & to_string(config.index_state) & ".";
@@ -597,8 +722,50 @@ package body rotary_encoder_bfm_pkg is
   begin
     return left_config.index_enabled = right_config.index_enabled and left_config.index_width = right_config.index_width and
            left_config.index_state = right_config.index_state and left_config.bounce_enabled = right_config.bounce_enabled and
-           left_config.bounce_window = right_config.bounce_window and left_config.jitter = right_config.jitter;
+           left_config.bounce_window = right_config.bounce_window and left_config.jitter = right_config.jitter and
+           left_config.a_stuck = right_config.a_stuck and left_config.b_stuck = right_config.b_stuck and
+           left_config.z_stuck = right_config.z_stuck;
   end function;
+
+  -- Why the edge offsets of config are invalid; "" if they are valid
+  function edge_offset_error(
+    constant config : in t_rotary_encoder_bfm_config
+  ) return string is
+    function check(
+      constant name   : in string;
+      constant offset : in real
+    ) return string is
+    begin
+      if abs(offset) < C_MAX_EDGE_OFFSET then
+        return "";
+      end if;
+      return name & " must lie within (-" & real_image(C_MAX_EDGE_OFFSET) & ", " & real_image(C_MAX_EDGE_OFFSET) &
+             ") deg, was " & real_image(offset) & ".";
+    end function;
+    constant C_A_RISE : string := check("a_rise_offset", config.a_rise_offset);
+    constant C_A_FALL : string := check("a_fall_offset", config.a_fall_offset);
+    constant C_B_RISE : string := check("b_rise_offset", config.b_rise_offset);
+    constant C_B_FALL : string := check("b_fall_offset", config.b_fall_offset);
+  begin
+    return C_A_RISE & C_A_FALL & C_B_RISE & C_B_FALL;
+  end function;
+
+  -- Latches the geometry of config: cycles_per_rev, the edge offsets as boundary offsets in quanta and the jitter limit
+  -- they give. Boundary offsets are indexed by the Gray index of the state below the boundary: 00 -> 10 is the A rise,
+  -- 10 -> 11 the B rise, 11 -> 01 the A fall, 01 -> 00 the B fall.
+  procedure latch_geometry(
+    variable state  : inout t_rotary_encoder_state;
+    constant config : in    t_rotary_encoder_bfm_config
+  ) is
+    constant C_OFFSETS : real_vector(0 to C_EDGES_PER_CYCLE - 1) := (config.a_rise_offset, config.b_rise_offset,
+                                                                    config.a_fall_offset, config.b_fall_offset);
+  begin
+    state.cycles_per_rev := config.cycles_per_rev;
+    for i in C_OFFSETS'range loop
+      state.edge_offset(i) := integer(round(C_OFFSETS(i) * C_QUANTA_PER_DEG_ELECTRICAL));
+    end loop;
+    state.jitter_limit := jitter_limit(config);
+  end procedure;
 
   -- Signal configuration for the next edge of a running motion: config if it is valid, otherwise
   -- the last valid one, with one TB_ERROR per invalid value. A motion is only started with a valid configuration, so this
@@ -648,6 +815,46 @@ package body rotary_encoder_bfm_pkg is
     offset   := integer(v_rest);
   end procedure;
 
+  -- Offsets (quanta from the centre of position) of the boundaries of the state at position, with the latched edge
+  -- offsets. The upper boundary is the one to position + 1.
+  function upper_bound(
+    constant state    : in t_rotary_encoder_state;
+    constant position : in integer
+  ) return integer is
+  begin
+    return C_HALF_K + state.edge_offset(logical_gray(state, position));
+  end function;
+
+  function lower_bound(
+    constant state    : in t_rotary_encoder_state;
+    constant position : in integer
+  ) return integer is
+  begin
+    return -C_HALF_K + state.edge_offset(logical_gray(state, position - 1));
+  end function;
+
+  -- Moves (position, offset) into the state that contains the angle, using the latched edge offsets. On a boundary the
+  -- shaft is in the lower state if below_wins, otherwise in the upper one.
+  procedure settle(
+    constant state      : in    t_rotary_encoder_state;
+    variable position   : inout integer;
+    variable offset     : inout integer;
+    constant below_wins : in    boolean
+  ) is
+  begin
+    loop
+      if offset > upper_bound(state, position) or (offset = upper_bound(state, position) and not below_wins) then
+        position := position + 1;
+        offset   := offset - C_K;
+      elsif offset < lower_bound(state, position) or (offset = lower_bound(state, position) and below_wins) then
+        position := position - 1;
+        offset   := offset + C_K;
+      else
+        exit;
+      end if;
+    end loop;
+  end procedure;
+
   function angle_degrees(
     constant state : in t_rotary_encoder_state;
     constant angle : in t_angle
@@ -682,7 +889,34 @@ package body rotary_encoder_bfm_pkg is
     return (position - v_q) mod C_PERIOD < config.index_width;
   end function;
 
-  -- Drives the state at state.position on A and B (states are pin levels); Z from the index decision and index_inverted
+  -- Level of Z for the logical index state z_active and index_inverted
+  function z_level(
+    constant z_active : in boolean;
+    constant config   : in t_rotary_encoder_bfm_config
+  ) return std_logic is
+  begin
+    if z_active xor config.index_inverted then
+      return '1';
+    else
+      return '0';
+    end if;
+  end function;
+
+  -- level, or the stuck level if stuck is not C_NOT_STUCK
+  function output_level(
+    constant level : in std_logic;
+    constant stuck : in std_logic
+  ) return std_logic is
+  begin
+    if stuck = C_NOT_STUCK then
+      return level;
+    else
+      return stuck;
+    end if;
+  end function;
+
+  -- Drives the state at state.position on A and B (states are pin levels); Z from the index decision and index_inverted.
+  -- A stuck output drives its stuck level instead.
   procedure drive_outputs(
     variable state      : inout t_rotary_encoder_state;
     signal   encoder_if : inout t_rotary_encoder_if;
@@ -691,12 +925,34 @@ package body rotary_encoder_bfm_pkg is
   begin
     state.ab       := gray_state(logical_gray(state, state.position));
     state.z_active := index_active(state, state.position, config);
-    encoder_if.a   <= state.ab(1);
-    encoder_if.b   <= state.ab(0);
-    if state.z_active xor config.index_inverted then
-      encoder_if.z <= '1';
-    else
-      encoder_if.z <= '0';
+    encoder_if.a   <= output_level(state.ab(1), config.a_stuck);
+    encoder_if.b   <= output_level(state.ab(0), config.b_stuck);
+    encoder_if.z   <= output_level(z_level(state.z_active, config), config.z_stuck);
+    state.a_stuck  := config.a_stuck;
+    state.b_stuck  := config.b_stuck;
+    state.z_stuck  := config.z_stuck;
+  end procedure;
+
+  -- Applies a changed stuck setting at the start of a command: a newly stuck output drives its stuck level, a released
+  -- one the level of the current state. Outputs whose setting is unchanged are not driven, so a running bounce
+  -- continues.
+  procedure apply_stuck(
+    variable state      : inout t_rotary_encoder_state;
+    signal   encoder_if : inout t_rotary_encoder_if;
+    constant config     : in    t_rotary_encoder_bfm_config
+  ) is
+  begin
+    if config.a_stuck /= state.a_stuck then
+      encoder_if.a  <= output_level(state.ab(1), config.a_stuck);
+      state.a_stuck := config.a_stuck;
+    end if;
+    if config.b_stuck /= state.b_stuck then
+      encoder_if.b  <= output_level(state.ab(0), config.b_stuck);
+      state.b_stuck := config.b_stuck;
+    end if;
+    if config.z_stuck /= state.z_stuck then
+      encoder_if.z  <= output_level(z_level(state.z_active, config), config.z_stuck);
+      state.z_stuck := config.z_stuck;
     end if;
   end procedure;
 
@@ -756,6 +1012,27 @@ package body rotary_encoder_bfm_pkg is
     state.bounce_end     := now + v_prev;
   end procedure;
 
+  -- Ends a bounce that is still running: drives the settled level, which deletes the remaining toggles. settled is
+  -- true when the channel was at its bounced level, i.e. it changes back now.
+  procedure settle_bounce(
+    variable state      : inout t_rotary_encoder_state;
+    signal   encoder_if : inout t_rotary_encoder_if;
+    variable settled    : out   boolean
+  ) is
+  begin
+    settled := false;
+    if state.bounce_pending and state.bounce_end > now then
+      if state.bounce_channel = CHANNEL_A then
+        settled      := encoder_if.a /= state.bounce_level;
+        encoder_if.a <= transport state.bounce_level;
+      else
+        settled      := encoder_if.b /= state.bounce_level;
+        encoder_if.b <= transport state.bounce_level;
+      end if;
+    end if;
+    state.bounce_pending := false;
+  end procedure;
+
   -- Cuts off a bounce that has not ended before the next edge: drives the settled level, which
   -- deletes the remaining toggles, and raises bounce_cut_severity once per command. settled is true when the channel was
   -- at its bounced level, i.e. it changes back now: the caller then waits one delta before the edge, so that the edge
@@ -769,16 +1046,10 @@ package body rotary_encoder_bfm_pkg is
     constant msg        : in    string;
     constant scope      : in    string
   ) is
+    constant C_CUT : boolean := state.bounce_pending and state.bounce_end > now;
   begin
-    settled := false;
-    if state.bounce_pending and state.bounce_end > now then
-      if state.bounce_channel = CHANNEL_A then
-        settled      := encoder_if.a /= state.bounce_level;
-        encoder_if.a <= transport state.bounce_level;
-      else
-        settled      := encoder_if.b /= state.bounce_level;
-        encoder_if.b <= transport state.bounce_level;
-      end if;
+    settle_bounce(state, encoder_if, settled);
+    if C_CUT then
       if not state.bounce_cut_reported then
         alert(config.bounce_cut_severity, proc_call & "=> Bounce of " & to_upper(to_string(state.bounce_channel)) &
                                           " cut off by the next edge at " & to_string(now, ns) &
@@ -787,22 +1058,24 @@ package body rotary_encoder_bfm_pkg is
         state.bounce_cut_reported := true;
       end if;
     end if;
-    state.bounce_pending := false;
   end procedure;
 
   --==========================================================================================
   -- Motion engine
   --==========================================================================================
-  -- Time at which the segment reaches distance (quanta) from its anchor: t0 + n * tpe_int + round(n * tpe_frac +
-  -- r / K * tpe_res + extra_units), n whole edges, r the rest. Computed from scratch for every edge, so nothing
-  -- accumulates. extra_units (resolution units, may be negative) is the jitter of the edge.
+  -- Time at which the segment reaches whole edges plus rest quanta from its anchor: t0 + n * tpe_int + round(n *
+  -- tpe_frac + r / K * tpe_res + extra_units), with n whole edges and 0 <= r < K. Computed from scratch for every edge,
+  -- so nothing accumulates. whole is an integer value; rest may lie outside 0 .. K (boundaries with edge offsets).
+  -- extra_units (resolution units, may be negative) is the jitter of the edge.
   function segment_time(
     constant state       : in t_rotary_encoder_state;
-    constant distance    : in real;
+    constant whole       : in real;
+    constant rest        : in real;
     constant extra_units : in real := 0.0
   ) return time is
-    constant C_N     : real := floor_big(distance / C_K_REAL);
-    constant C_R     : real := distance - C_N * C_K_REAL;
+    constant C_CARRY : real := floor_big(rest / C_K_REAL);
+    constant C_N     : real := whole + C_CARRY;
+    constant C_R     : real := rest - C_CARRY * C_K_REAL;
     constant C_UNITS : real := C_N * state.tpe_frac + C_R / C_K_REAL * state.tpe_res + extra_units;
     constant C_BASE  : time := state.seg_t0 + integer(C_N) * state.tpe_int;
   begin
@@ -813,70 +1086,107 @@ package body rotary_encoder_bfm_pkg is
     end if;
   end function;
 
-  -- Distance from the segment anchor to the next boundary in the segment direction
-  function boundary_distance(
+  -- End time of a move segment (seg_len quanta)
+  function move_end_time(
     constant state : in t_rotary_encoder_state
-  ) return real is
+  ) return time is
+    constant C_WHOLE : real := floor_big(state.seg_len / C_K_REAL);
   begin
-    if state.seg_dir > 0 then
-      return real(state.position - state.seg_p0) * C_K_REAL + real(C_HALF_K - state.seg_o0);
-    else
-      return real(state.seg_p0 - state.position) * C_K_REAL + real(C_HALF_K + state.seg_o0);
-    end if;
+    return segment_time(state, C_WHOLE, state.seg_len - C_WHOLE * C_K_REAL);
   end function;
 
-  -- Time of the next event of the active motion: an edge (a boundary is reached) or the end of the segment. With jitter
-  -- (amplitude in electrical degrees), the edge is displaced by jitter_u * jitter / 90 * time_per_edge; jitter_u is
-  -- drawn once per edge, so the time does not change when the call is repeated. The displaced edge stays inside its
-  -- segment: not before its start, and for a move not after its end.
-  procedure next_motion_event(
-    variable state   : inout t_rotary_encoder_state;
-    constant jitter  : in    real;
-    variable at_time : out   time;
-    variable is_edge : out   boolean
+  -- Whole edges and rest (quanta) from the segment anchor to the next boundary in the segment direction
+  procedure boundary_distance(
+    constant state : in  t_rotary_encoder_state;
+    variable whole : out real;
+    variable rest  : out real
   ) is
-    constant C_DISTANCE : real := boundary_distance(state);
-    variable v_rand     : real;
-    variable v_time     : time;
   begin
-    if state.seg_len > 0.0 and C_DISTANCE <= state.seg_len then
-      if jitter > 0.0 then
-        if not state.jitter_drawn then
-          uniform(state.seed1, state.seed2, v_rand); -- In (0, 1)
-          state.jitter_u     := 2.0 * v_rand - 1.0;
-          state.jitter_drawn := true;
-        end if;
-        v_time := segment_time(state, C_DISTANCE, state.jitter_u * jitter / C_DEG_ELECTRICAL_EDGE * state.tpe_res);
-        if v_time < state.seg_t0 then
-          v_time := state.seg_t0;
-        elsif state.motion.kind /= MOTION_ROTATION and v_time > segment_time(state, state.seg_len) then
-          v_time := segment_time(state, state.seg_len);
-        end if;
-        at_time := v_time;
-      else
-        at_time := segment_time(state, C_DISTANCE);
-      end if;
-      is_edge := true;
+    if state.seg_dir > 0 then
+      whole := real(state.position - state.seg_p0);
+      rest  := real(upper_bound(state, state.position) - state.seg_o0);
     else
-      at_time := segment_time(state, state.seg_len);
-      is_edge := false;
+      whole := real(state.seg_p0 - state.position);
+      rest  := real(state.seg_o0 - lower_bound(state, state.position));
     end if;
   end procedure;
 
+  -- Time and kind of the next event of the active motion: an edge (a boundary is reached), the end of the segment (end
+  -- of a move or of a profile entry), or none (a rotation at 0 rpm without a profile). With jitter (amplitude in
+  -- electrical degrees), the edge is displaced by jitter_u * jitter / 90 * time_per_edge; jitter_u is drawn once per
+  -- edge, so the time does not change when the call is repeated. The displaced edge stays inside its segment: not
+  -- before its start, and for a move not after its end. An edge at the end of a profile entry comes first.
+  procedure next_motion_event(
+    variable state      : inout t_rotary_encoder_state;
+    constant jitter     : in    real;
+    variable at_time    : out   time;
+    variable next_event : out   t_next_event
+  ) is
+    variable v_whole : real;
+    variable v_rest  : real;
+    variable v_rand  : real;
+    variable v_time  : time;
+  begin
+    if state.seg_moving then
+      boundary_distance(state, v_whole, v_rest);
+      if not state.seg_bounded or v_whole * C_K_REAL + v_rest <= state.seg_len then
+        if jitter > 0.0 then
+          if not state.jitter_drawn then
+            uniform(state.seed1, state.seed2, v_rand); -- In (0, 1)
+            state.jitter_u     := 2.0 * v_rand - 1.0;
+            state.jitter_drawn := true;
+          end if;
+          v_time := segment_time(state, v_whole, v_rest, state.jitter_u * jitter / C_DEG_ELECTRICAL_EDGE * state.tpe_res);
+          if v_time < state.seg_t0 then
+            v_time := state.seg_t0;
+          elsif state.seg_bounded and v_time > move_end_time(state) then
+            v_time := move_end_time(state);
+          end if;
+        else
+          v_time := segment_time(state, v_whole, v_rest);
+        end if;
+        if v_time <= state.seg_end then
+          at_time    := v_time;
+          next_event := NEXT_EDGE;
+          return;
+        end if;
+      end if;
+    end if;
+    if state.seg_bounded then
+      at_time    := move_end_time(state);
+      next_event := NEXT_SEGMENT_END;
+    elsif state.seg_end /= C_NO_END then
+      at_time    := state.seg_end;
+      next_event := NEXT_SEGMENT_END;
+    else
+      at_time    := C_NO_END;
+      next_event := NEXT_NONE;
+    end if;
+  end procedure;
+
+  -- Anchors a new segment at the current time and angle. moving is false at 0 rpm; bounded marks a move of length quanta;
+  -- seg_end is the end of a profile entry or C_NO_END.
   procedure start_segment(
-    variable state  : inout t_rotary_encoder_state;
-    constant dir    : in    integer;
-    constant length : in    real
+    variable state   : inout t_rotary_encoder_state;
+    constant dir     : in    integer;
+    constant moving  : in    boolean;
+    constant bounded : in    boolean;
+    constant length  : in    real;
+    constant seg_end : in    time
   ) is
   begin
-    state.seg_t0  := now;
-    state.seg_p0  := state.position;
-    state.seg_o0  := state.offset;
-    state.seg_dir := dir;
-    state.seg_len := length;
-    state.rpm     := real(dir) * state.speed_rpm;
-    if state.rpm /= 0.0 then
-      state.last_rpm := state.rpm;
+    state.seg_t0      := now;
+    state.seg_p0      := state.position;
+    state.seg_o0      := state.offset;
+    state.seg_dir     := dir;
+    state.seg_moving  := moving;
+    state.seg_bounded := bounded;
+    state.seg_len     := length;
+    state.seg_end     := seg_end;
+    if moving then
+      state.rpm := real(dir) * state.speed_rpm;
+    else
+      state.rpm := 0.0;
     end if;
   end procedure;
 
@@ -889,22 +1199,24 @@ package body rotary_encoder_bfm_pkg is
   begin
     if not state.motion_active then
       return (state.position, state.offset);
+    elsif not state.seg_moving then
+      return (state.seg_p0, state.seg_o0);
     end if;
     v_distance := time_to_units(now - state.seg_t0) / state.tpe_res * C_K_REAL;
-    if v_distance > state.seg_len then
+    if state.seg_bounded and v_distance > state.seg_len then
       v_distance := state.seg_len;
     end if;
-    v_offset   := real(state.seg_o0) + real(state.seg_dir) * v_distance - real(state.position - state.seg_p0) * C_K_REAL;
-    v_offset   := round_big(v_offset);
-    if v_offset > real(C_HALF_K) then
-      v_offset := real(C_HALF_K);
-    elsif v_offset < -real(C_HALF_K) then
-      v_offset := -real(C_HALF_K);
+    v_offset := round_big(real(state.seg_o0) + real(state.seg_dir) * v_distance -
+                          real(state.position - state.seg_p0) * C_K_REAL);
+    if v_offset > real(upper_bound(state, state.position)) then
+      v_offset := real(upper_bound(state, state.position));
+    elsif v_offset < real(lower_bound(state, state.position)) then
+      v_offset := real(lower_bound(state, state.position));
     end if;
     return (state.position, integer(v_offset));
   end function;
 
-  -- Ends the current segment at its end angle and the motion with it
+  -- Ends a move segment at its end angle and the motion with it
   procedure end_segment(
     variable state : inout t_rotary_encoder_state
   ) is
@@ -915,38 +1227,20 @@ package body rotary_encoder_bfm_pkg is
     state.rpm           := 0.0;
   end procedure;
 
-  -- Executes the next event of the active motion at the current time: an edge (outputs, then the bounce of the changed
-  -- channel) or the end of the segment. A bounce of the previous edge has been cut off by the caller (cut_bounce).
-  procedure motion_step(
-    variable state      : inout t_rotary_encoder_state;
-    signal   encoder_if : inout t_rotary_encoder_if;
-    constant config     : in    t_rotary_encoder_bfm_config;
-    variable is_edge    : out   boolean
+  -- Ends the active motion at the current angle
+  procedure halt(
+    variable state : inout t_rotary_encoder_state
   ) is
-    variable v_time   : time;
-    variable v_edge   : boolean;
-    variable v_old_ab : std_logic_vector(1 downto 0);
+    variable v_angle : t_angle;
   begin
-    next_motion_event(state, config.jitter, v_time, v_edge);
-    if v_edge then
-      v_old_ab             := state.ab;
-      state.position       := state.position + state.seg_dir;
-      state.offset         := -state.seg_dir * C_HALF_K; -- On the boundary, in the state moved into
-      state.edges          := state.edges + 1;
-      state.last_edge_time := now;
-      state.jitter_drawn   := false;
-      drive_outputs(state, encoder_if, config);
-      if config.bounce_enabled and config.bounce_pulses > 0 then
-        if v_old_ab(1) /= state.ab(1) then
-          schedule_bounce(state, encoder_if, config, CHANNEL_A, state.ab(1));
-        else
-          schedule_bounce(state, encoder_if, config, CHANNEL_B, state.ab(0));
-        end if;
-      end if;
-    else
-      end_segment(state);
+    if state.motion_active then
+      v_angle             := current_angle(state);
+      state.position      := v_angle.position;
+      state.offset        := v_angle.offset;
+      state.motion_active := false;
+      state.rpm           := 0.0;
+      state.jitter_drawn  := false;
     end if;
-    is_edge := v_edge;
   end procedure;
 
   function dir_sign(
@@ -959,6 +1253,188 @@ package body rotary_encoder_bfm_pkg is
       return -1;
     end if;
   end function;
+
+  -- time_per_edge in resolution units: from |rpm| (SPEED_RPM, rpm /= 0.0) or from time_per_edge
+  function speed_units(
+    constant form           : in t_rotary_encoder_speed_form;
+    constant rpm            : in real;
+    constant time_per_edge  : in time;
+    constant cycles_per_rev : in integer
+  ) return real is
+  begin
+    if form = SPEED_RPM then
+      return C_UNITS_PER_MIN / edges_per_minute(abs(rpm), cycles_per_rev);
+    else
+      return time_to_units(time_per_edge);
+    end if;
+  end function;
+
+  -- Why a speed is invalid; "" if it is valid. Moves need rpm > 0; rotations take a signed rpm, 0.0 included.
+  function speed_error(
+    constant form           : in t_rotary_encoder_speed_form;
+    constant rpm            : in real;
+    constant time_per_edge  : in time;
+    constant cycles_per_rev : in integer;
+    constant is_rotation    : in boolean
+  ) return string is
+  begin
+    if form = SPEED_RPM then
+      if is_rotation and not is_finite(rpm) then
+        return "rpm must be finite, was " & real_image(rpm) & ".";
+      elsif is_rotation and rpm = 0.0 then
+        return "";
+      elsif not is_rotation and not (rpm > 0.0 and is_finite(rpm)) then
+        return "rpm must be positive and finite, was " & real_image(rpm) & ".";
+      end if;
+    elsif time_per_edge <= 0 ns then
+      return "time_per_edge must be positive, was " & to_string(time_per_edge, ns) & ".";
+    end if;
+    if speed_units(form, rpm, time_per_edge, cycles_per_rev) > C_MAX_TPE then
+      return "Speed too low: time_per_edge above " & real_image(C_MAX_TPE / C_UNITS_PER_SEC) & " s.";
+    end if;
+    return "";
+  end function;
+
+  -- Speed of the next segment: time_per_edge from |rpm| (SPEED_RPM) or from time_per_edge, split into whole resolution
+  -- units and a fraction of a unit
+  procedure set_speed(
+    variable state         : inout t_rotary_encoder_state;
+    constant form          : in    t_rotary_encoder_speed_form;
+    constant rpm           : in    real;
+    constant time_per_edge : in    time
+  ) is
+    constant C_TPE_RES : real := speed_units(form, rpm, time_per_edge, state.cycles_per_rev);
+    variable v_den     : real := 0.0;
+  begin
+    if form = SPEED_RPM then
+      v_den := edges_per_minute(abs(rpm), state.cycles_per_rev);
+    end if;
+    state.tpe_res := C_TPE_RES;
+    if form = SPEED_RPM and v_den < C_MAX_DIVISOR and v_den = floor(v_den) then
+      -- 1 min / den with an integer den: whole units and remainder exact in time arithmetic, so that the fraction does
+      -- not carry the rounding error of the real time_per_edge (multiplied by the edge count in segment_time)
+      state.tpe_int  := C_MINUTE / integer(v_den);
+      state.tpe_frac := real((C_MINUTE - state.tpe_int * integer(v_den)) / C_RES) / v_den;
+    else
+      state.tpe_int  := units_to_time(floor_big(C_TPE_RES));
+      state.tpe_frac := C_TPE_RES - floor_big(C_TPE_RES);
+    end if;
+    state.speed_rpm := C_UNITS_PER_MIN / (C_TPE_RES * real(C_EDGES_PER_CYCLE * state.cycles_per_rev));
+  end procedure;
+
+  -- Starts a rotation segment at the current time: signed rpm (SPEED_RPM, 0.0 = at rest) or time_per_edge in
+  -- direction. seg_end is the end of the profile entry or C_NO_END.
+  procedure start_rotation_segment(
+    variable state         : inout t_rotary_encoder_state;
+    constant form          : in    t_rotary_encoder_speed_form;
+    constant rpm           : in    real;
+    constant time_per_edge : in    time;
+    constant direction     : in    t_rotary_encoder_direction;
+    constant seg_end       : in    time
+  ) is
+  begin
+    if form = SPEED_RPM and rpm = 0.0 then
+      state.speed_rpm := 0.0;
+      start_segment(state, 1, false, false, 0.0, seg_end);
+    elsif form = SPEED_RPM then
+      set_speed(state, form, rpm, time_per_edge);
+      if rpm > 0.0 then
+        start_segment(state, 1, true, false, 0.0, seg_end);
+      else
+        start_segment(state, -1, true, false, 0.0, seg_end);
+      end if;
+    else
+      set_speed(state, form, rpm, time_per_edge);
+      start_segment(state, dir_sign(direction), true, false, 0.0, seg_end);
+    end if;
+  end procedure;
+
+  -- Starts entry profile_idx of the active profile at the current time
+  procedure start_profile_entry(
+    variable state : inout t_rotary_encoder_state
+  ) is
+  begin
+    start_rotation_segment(state, SPEED_RPM, state.motion.profile(state.profile_idx), state.motion.time_per_edge,
+                           state.motion.direction, state.profile_t0 + (state.profile_idx + 1) * state.motion.time_per_entry);
+  end procedure;
+
+  -- End of the current profile entry, at the current time: the next entry starts at the current angle (a speed change),
+  -- or after the last entry the end behaviour applies. pass_end is true at the end of a pass.
+  procedure advance_profile(
+    variable state    : inout t_rotary_encoder_state;
+    variable pass_end : out   boolean
+  ) is
+    constant C_ANGLE : t_angle := current_angle(state);
+  begin
+    pass_end := state.profile_idx + 1 >= state.motion.profile_length;
+    if not pass_end then
+      state.position    := C_ANGLE.position;
+      state.offset      := C_ANGLE.offset;
+      state.profile_idx := state.profile_idx + 1;
+      start_profile_entry(state);
+      return;
+    end if;
+    case state.motion.profile_end is
+      when PROFILE_HOLD =>
+        state.seg_end := C_NO_END; -- The speed of the last entry continues in the same segment
+      when PROFILE_STOP =>
+        halt(state);
+      when PROFILE_REPEAT =>
+        state.position    := C_ANGLE.position;
+        state.offset      := C_ANGLE.offset;
+        state.profile_idx := 0;
+        state.profile_t0  := now;
+        start_profile_entry(state);
+    end case;
+  end procedure;
+
+  -- Executes the next event of the active motion at the current time: an edge (outputs, then the bounce of the changed
+  -- channel unless that output is stuck) or the end of the segment. A bounce of the previous edge has been cut off by
+  -- the caller (cut_bounce). executed is the kind of event; pass_end is true at the end of a profile pass.
+  procedure motion_step(
+    variable state      : inout t_rotary_encoder_state;
+    signal   encoder_if : inout t_rotary_encoder_if;
+    constant config     : in    t_rotary_encoder_bfm_config;
+    variable executed   : out   t_next_event;
+    variable pass_end   : out   boolean
+  ) is
+    variable v_time   : time;
+    variable v_next   : t_next_event;
+    variable v_old_ab : std_logic_vector(1 downto 0);
+  begin
+    pass_end := false;
+    next_motion_event(state, config.jitter, v_time, v_next);
+    if v_next = NEXT_EDGE then
+      v_old_ab       := state.ab;
+      state.position := state.position + state.seg_dir;
+      -- On the boundary, in the state moved into
+      if state.seg_dir > 0 then
+        state.offset := lower_bound(state, state.position);
+      else
+        state.offset := upper_bound(state, state.position);
+      end if;
+      state.edges          := state.edges + 1;
+      state.last_edge_time := now;
+      state.jitter_drawn   := false;
+      drive_outputs(state, encoder_if, config);
+      if config.bounce_enabled and config.bounce_pulses > 0 then
+        if v_old_ab(1) /= state.ab(1) then
+          if config.a_stuck = C_NOT_STUCK then
+            schedule_bounce(state, encoder_if, config, CHANNEL_A, state.ab(1));
+          end if;
+        elsif config.b_stuck = C_NOT_STUCK then
+          schedule_bounce(state, encoder_if, config, CHANNEL_B, state.ab(0));
+        end if;
+      end if;
+    elsif v_next = NEXT_SEGMENT_END then
+      if state.seg_bounded then
+        end_segment(state);
+      else
+        advance_profile(state, pass_end);
+      end if;
+    end if;
+    executed := v_next;
+  end procedure;
 
   -- Checks that the state is initialized and that config.zero_state is the one kept at init. Raises one
   -- TB_ERROR and returns false otherwise.
@@ -978,6 +1454,42 @@ package body rotary_encoder_bfm_pkg is
       alert(TB_ERROR, proc_call & "=> Failed. zero_state is " & to_string(config.zero_state) & ", but " &
                       to_string(gray_state(state.zero_gray)) & " was taken at init. The zero state must not change." &
                       add_msg_delimiter(msg), scope);
+      return false;
+    end if;
+    return true;
+  end function;
+
+  -- Checks a command: is_call_valid; with latch also the geometry of config (cycles_per_rev, edge offsets); then the
+  -- signal configuration against the jitter limit of the geometry the command uses. Raises one TB_ERROR and returns
+  -- false otherwise.
+  impure function is_command_valid(
+    constant state     : in t_rotary_encoder_state;
+    constant latch     : in boolean;
+    constant proc_call : in string;
+    constant msg       : in string;
+    constant scope     : in string;
+    constant config    : in t_rotary_encoder_bfm_config
+  ) return boolean is
+    constant C_OFFSET_ERROR : string := edge_offset_error(config);
+    variable v_limit        : real;
+  begin
+    if not is_call_valid(state, proc_call, msg, scope, config) then
+      return false;
+    end if;
+    v_limit := state.jitter_limit;
+    if latch then
+      if config.cycles_per_rev < 1 then
+        alert(TB_ERROR, proc_call & "=> Failed. cycles_per_rev must be at least 1, was " & to_string(config.cycles_per_rev) &
+                        "." & add_msg_delimiter(msg), scope);
+        return false;
+      elsif C_OFFSET_ERROR'length > 0 then
+        alert(TB_ERROR, proc_call & "=> Failed. " & C_OFFSET_ERROR & add_msg_delimiter(msg), scope);
+        return false;
+      end if;
+      v_limit := jitter_limit(config);
+    end if;
+    if signal_config_error(config, v_limit)'length > 0 then
+      alert(TB_ERROR, proc_call & "=> Failed. " & signal_config_error(config, v_limit) & add_msg_delimiter(msg), scope);
       return false;
     end if;
     return true;
@@ -1005,7 +1517,7 @@ package body rotary_encoder_bfm_pkg is
   end function;
 
   -- Validates a motion and makes it the active one at the current time (rotary_encoder_set_motion and the user-level
-  -- procedures)
+  -- procedures). A rotation that replaces a running rotation (speed change) keeps the geometry latched at its start.
   procedure activate_motion(
     constant motion       : in    t_rotary_encoder_motion;
     constant proc_call    : in    string;
@@ -1016,13 +1528,13 @@ package body rotary_encoder_bfm_pkg is
     constant msg_id_panel : in    t_msg_id_panel;
     constant config       : in    t_rotary_encoder_bfm_config
   ) is
-    constant C_DIR          : integer := dir_sign(motion.direction);
-    constant C_JITTER_LIMIT : real    := jitter_limit(config);
-    constant C_SIGNAL_ERROR : string  := signal_config_error(config, C_JITTER_LIMIT);
-    variable v_tpe_res  : real;
-    variable v_length   : real;
-    variable v_angle    : t_angle;
-    variable v_den      : real;
+    constant C_LATCH  : boolean := not (state.motion_active and state.motion.kind = MOTION_ROTATION and
+                                        motion.kind = MOTION_ROTATION);
+    constant C_DIR    : integer := dir_sign(motion.direction);
+    constant C_IS_ROT : boolean := motion.kind = MOTION_ROTATION;
+    variable v_cpr    : integer;
+    variable v_length : real    := 0.0;
+    variable v_angle  : t_angle;
 
     procedure fail(
       constant reason : in string
@@ -1034,33 +1546,31 @@ package body rotary_encoder_bfm_pkg is
   begin
     accepted := false;
     -- Validation: one TB_ERROR, no change
-    if not is_call_valid(state, proc_call, msg, scope, config) then
-      return;
-    elsif config.cycles_per_rev < 1 then
-      fail("cycles_per_rev must be at least 1, was " & to_string(config.cycles_per_rev) & ".");
-      return;
-    elsif C_SIGNAL_ERROR'length > 0 then
-      fail(C_SIGNAL_ERROR);
-      return;
-    elsif motion.kind = MOTION_ROTATION then
-      fail(to_string(motion.kind) & " is not supported yet.");
+    if not is_command_valid(state, C_LATCH, proc_call, msg, scope, config) then
       return;
     end if;
-    if motion.speed_form = SPEED_RPM then
-      if not (motion.rpm > 0.0 and is_finite(motion.rpm)) then
-        fail("rpm must be positive and finite, was " & real_image(motion.rpm) & ".");
-        return;
-      end if;
-      v_tpe_res := C_UNITS_PER_MIN / edges_per_minute(motion.rpm, config.cycles_per_rev);
+    if C_LATCH then
+      v_cpr := config.cycles_per_rev;
     else
-      if motion.time_per_edge <= 0 ns then
-        fail("time_per_edge must be positive, was " & to_string(motion.time_per_edge, ns) & ".");
+      v_cpr := state.cycles_per_rev;
+    end if;
+    if C_IS_ROT and motion.profile_length > 0 then
+      if motion.profile_length > C_ROTARY_ENCODER_VVC_CMD_PROFILE_MAX_LENGTH then
+        fail("The profile has " & to_string(motion.profile_length) & " entries, the maximum is " &
+             to_string(C_ROTARY_ENCODER_VVC_CMD_PROFILE_MAX_LENGTH) & ".");
+        return;
+      elsif motion.time_per_entry <= 0 ns then
+        fail("time_per_entry must be positive, was " & to_string(motion.time_per_entry, ns) & ".");
         return;
       end if;
-      v_tpe_res := time_to_units(motion.time_per_edge);
-    end if;
-    if v_tpe_res > C_MAX_TPE then
-      fail("Speed too low: time_per_edge above " & real_image(C_MAX_TPE / C_UNITS_PER_SEC) & " s.");
+      for i in 0 to motion.profile_length - 1 loop
+        if speed_error(SPEED_RPM, motion.profile(i), motion.time_per_edge, v_cpr, true)'length > 0 then
+          fail("Profile entry " & to_string(i) & ": " & speed_error(SPEED_RPM, motion.profile(i), motion.time_per_edge, v_cpr, true));
+          return;
+        end if;
+      end loop;
+    elsif speed_error(motion.speed_form, motion.rpm, motion.time_per_edge, v_cpr, C_IS_ROT)'length > 0 then
+      fail(speed_error(motion.speed_form, motion.rpm, motion.time_per_edge, v_cpr, C_IS_ROT));
       return;
     end if;
 
@@ -1075,8 +1585,8 @@ package body rotary_encoder_bfm_pkg is
           fail("angle must be >= 0.0 and finite (the direction is a separate argument), was " & real_image(motion.angle) & ".");
           return;
         end if;
-        v_length := round_big(motion.angle * real(config.cycles_per_rev) * C_QUANTA_PER_DEG);
-      when others => -- MOTION_TO_STATE: resolved here into an angle move from the angle at the current time
+        v_length := round_big(motion.angle * real(v_cpr) * C_QUANTA_PER_DEG_ELECTRICAL);
+      when MOTION_TO_STATE => -- Resolved here into an angle move from the angle at the current time
         if motion.num = 0 then
           fail("occurrence must be at least 1, was 0.");
           return;
@@ -1086,6 +1596,8 @@ package body rotary_encoder_bfm_pkg is
         end if;
         v_length := to_state_distance(state, v_angle.position, v_angle.offset, C_DIR, gray_index(motion.target_state),
                                       motion.num);
+      when MOTION_ROTATION =>
+        null;
     end case;
     if v_length > C_MAX_EXACT then
       fail("Move too long for one command.");
@@ -1094,10 +1606,11 @@ package body rotary_encoder_bfm_pkg is
     accepted := true;
 
     -- End a running motion at the current angle and latch the geometry
-    state.position       := v_angle.position;
-    state.offset         := v_angle.offset;
-    state.cycles_per_rev := config.cycles_per_rev;
-    state.jitter_limit   := C_JITTER_LIMIT;
+    state.position := v_angle.position;
+    state.offset   := v_angle.offset;
+    if C_LATCH then
+      latch_geometry(state, config);
+    end if;
 
     -- Signal configuration: valid from here on; a new command reports a bounce cut-off again
     state.valid_config        := config;
@@ -1105,24 +1618,73 @@ package body rotary_encoder_bfm_pkg is
     state.bounce_cut_reported := false;
     state.jitter_drawn        := false;
 
-    -- Speed
-    state.motion  := motion;
-    state.tpe_res := v_tpe_res;
-    v_den         := edges_per_minute(motion.rpm, config.cycles_per_rev);
-    if motion.speed_form = SPEED_RPM and v_den < C_MAX_DIVISOR and v_den = floor(v_den) then
-      -- 1 min / den with an integer den: whole units and remainder exact in time arithmetic, so that the fraction does
-      -- not carry the rounding error of the real time_per_edge (multiplied by the edge count in segment_time)
-      state.tpe_int  := C_MINUTE / integer(v_den);
-      state.tpe_frac := real((C_MINUTE - state.tpe_int * integer(v_den)) / C_RES) / v_den;
-    else
-      state.tpe_int  := units_to_time(floor_big(v_tpe_res));
-      state.tpe_frac := v_tpe_res - floor_big(v_tpe_res);
-    end if;
-    state.speed_rpm := C_UNITS_PER_MIN / (v_tpe_res * real(C_EDGES_PER_CYCLE * state.cycles_per_rev));
-
+    state.motion        := motion;
     state.edges         := 0;
     state.motion_active := true;
-    start_segment(state, C_DIR, v_length);
+    if not C_IS_ROT then
+      set_speed(state, motion.speed_form, motion.rpm, motion.time_per_edge);
+      start_segment(state, C_DIR, true, true, v_length, C_NO_END);
+    elsif motion.profile_length = 0 then
+      start_rotation_segment(state, motion.speed_form, motion.rpm, motion.time_per_edge, motion.direction, C_NO_END);
+    else
+      state.profile_idx := 0;
+      state.profile_t0  := now;
+      start_profile_entry(state);
+    end if;
+  end procedure;
+
+  -- Runs the active motion until it is at rest, or until deadline, where it stops at the reached angle (user-level
+  -- procedures, which have no interrupt)
+  procedure run_to_end(
+    variable state      : inout t_rotary_encoder_state;
+    signal   encoder_if : inout t_rotary_encoder_if;
+    constant deadline   : in    time;
+    constant proc_call  : in    string;
+    constant msg        : in    string;
+    constant scope      : in    string;
+    constant config     : in    t_rotary_encoder_bfm_config
+  ) is
+    variable v_time    : time;
+    variable v_next    : t_next_event;
+    variable v_settled : boolean;
+    variable v_pass    : boolean;
+  begin
+    while state.motion_active loop
+      next_motion_event(state, config.jitter, v_time, v_next);
+      if v_next = NEXT_NONE or v_time > deadline then
+        if deadline > now then
+          wait for deadline - now;
+        end if;
+        halt(state);
+        exit;
+      end if;
+      if v_time > now then
+        wait for v_time - now;
+      elsif v_next = NEXT_EDGE and state.last_edge_time = now then
+        wait for 0 ns; -- Two edges at one time step: one delta each, never both channels in one delta
+      end if;
+      if v_next = NEXT_EDGE then
+        cut_bounce(state, encoder_if, config, v_settled, proc_call, msg, scope);
+        if v_settled then
+          wait for 0 ns; -- The bounced channel settles one delta before the edge
+        end if;
+      end if;
+      motion_step(state, encoder_if, config, v_next, v_pass);
+    end loop;
+  end procedure;
+
+  procedure log_motion(
+    constant state        : in t_rotary_encoder_state;
+    constant proc_call    : in string;
+    constant msg          : in string;
+    constant scope        : in string;
+    constant msg_id_panel : in t_msg_id_panel;
+    constant config       : in t_rotary_encoder_bfm_config
+  ) is
+  begin
+    log(config.id_for_bfm, proc_call & "=> " & to_string(state.edges) & " edges, position " & to_string(state.position) &
+                           ", angle " & real_image(angle_degrees(state, (state.position, state.offset))) & " deg." &
+                           add_msg_delimiter(msg), scope, msg_id_panel);
   end procedure;
 
   -- Runs a move to its end (user-level procedures) and logs it
@@ -1137,32 +1699,76 @@ package body rotary_encoder_bfm_pkg is
     constant config       : in    t_rotary_encoder_bfm_config
   ) is
     variable v_accepted : boolean;
-    variable v_time     : time;
-    variable v_edge     : boolean;
-    variable v_settled  : boolean;
   begin
     activate_motion(motion, proc_call, state, v_accepted, msg, scope, msg_id_panel, config);
     if not v_accepted then
       return;
     end if;
-    while state.motion_active loop
-      next_motion_event(state, config.jitter, v_time, v_edge);
-      if v_time > now then
-        wait for v_time - now;
-      elsif v_edge and state.last_edge_time = now then
-        wait for 0 ns; -- Two edges at one time step: one delta each, never both channels in one delta
-      end if;
-      if v_edge then
-        cut_bounce(state, encoder_if, config, v_settled, proc_call, msg, scope);
-        if v_settled then
-          wait for 0 ns; -- The bounced channel settles one delta before the edge
-        end if;
-      end if;
-      motion_step(state, encoder_if, config, v_edge);
-    end loop;
-    log(config.id_for_bfm, proc_call & "=> " & to_string(state.edges) & " edges, position " & to_string(state.position) &
-                           ", angle " & real_image(angle_degrees(state, (state.position, state.offset))) & " deg." &
-                           add_msg_delimiter(msg), scope, msg_id_panel);
+    apply_stuck(state, encoder_if, config);
+    run_to_end(state, encoder_if, C_NO_END, proc_call, msg, scope, config);
+    log_motion(state, proc_call, msg, scope, msg_id_panel, config);
+  end procedure;
+
+  -- Rotates for duration, then stops at once at the reached angle (rotary_encoder_rotate), and logs it
+  procedure execute_rotation(
+    constant motion       : in    t_rotary_encoder_motion;
+    constant duration     : in    time;
+    constant proc_call    : in    string;
+    variable state        : inout t_rotary_encoder_state;
+    constant msg          : in    string;
+    signal   encoder_if   : inout t_rotary_encoder_if;
+    constant scope        : in    string;
+    constant msg_id_panel : in    t_msg_id_panel;
+    constant config       : in    t_rotary_encoder_bfm_config
+  ) is
+    variable v_accepted : boolean;
+  begin
+    if duration <= 0 ns then
+      alert(TB_ERROR, proc_call & "=> Failed. duration must be positive, was " & to_string(duration, ns) & "." &
+                      add_msg_delimiter(msg), scope);
+      return;
+    end if;
+    activate_motion(motion, proc_call, state, v_accepted, msg, scope, msg_id_panel, config);
+    if not v_accepted then
+      return;
+    end if;
+    apply_stuck(state, encoder_if, config);
+    run_to_end(state, encoder_if, now + duration, proc_call, msg, scope, config);
+    log_motion(state, proc_call, msg, scope, msg_id_panel, config);
+  end procedure;
+
+  -- Places the shaft at (position, offset) in zero time and drives the new state in one delta (set angle, jump). A
+  -- running bounce is settled first, one delta earlier if its channel is at the bounced level.
+  procedure place_shaft(
+    variable state        : inout t_rotary_encoder_state;
+    signal   encoder_if   : inout t_rotary_encoder_if;
+    constant position     : in    integer;
+    constant offset       : in    integer;
+    constant proc_call    : in    string;
+    constant msg          : in    string;
+    constant scope        : in    string;
+    constant msg_id_panel : in    t_msg_id_panel;
+    constant config       : in    t_rotary_encoder_bfm_config
+  ) is
+    constant C_EDGES   : integer := position - state.position;
+    variable v_settled : boolean;
+  begin
+    settle_bounce(state, encoder_if, v_settled);
+    if v_settled then
+      wait for 0 ns; -- The bounced channel settles one delta before the new state
+    end if;
+    state.position := position;
+    state.offset   := offset;
+    drive_outputs(state, encoder_if, config);
+    if C_EDGES >= 0 then
+      log(config.id_for_bfm, proc_call & "=> " & to_string(C_EDGES) & " edges forward in zero time, position " &
+                             to_string(state.position) & ", angle " & real_image(angle_degrees(state, (state.position, state.offset))) &
+                             " deg, AB " & to_string(state.ab) & "." & add_msg_delimiter(msg), scope, msg_id_panel);
+    else
+      log(config.id_for_bfm, proc_call & "=> " & to_string(-C_EDGES) & " edges reverse in zero time, position " &
+                             to_string(state.position) & ", angle " & real_image(angle_degrees(state, (state.position, state.offset))) &
+                             " deg, AB " & to_string(state.ab) & "." & add_msg_delimiter(msg), scope, msg_id_panel);
+    end if;
   end procedure;
 
   function speed_string(
@@ -1242,6 +1848,29 @@ package body rotary_encoder_bfm_pkg is
     return deg_per_sec / C_DEG_PER_SEC_PER_RPM;
   end function;
 
+  impure function rotary_encoder_linear_ramp(
+    constant rpm_start   : in real;
+    constant rpm_end     : in real;
+    constant num_entries : in integer
+  ) return real_vector is
+    constant C_PROC_CALL : string := "rotary_encoder_linear_ramp(" & real_image(rpm_start) & ", " & real_image(rpm_end) & ", " &
+                                     to_string(num_entries) & ")";
+    constant C_EMPTY     : real_vector(0 to -1) := (others => 0.0);
+    variable v_result    : real_vector(0 to num_entries - 1);
+  begin
+    if num_entries < 1 or not is_finite(rpm_start) or not is_finite(rpm_end) then
+      alert(TB_ERROR, C_PROC_CALL & "=> Failed. num_entries must be at least 1 and the speeds finite. Returns an empty profile.",
+            C_BFM_SCOPE);
+      return C_EMPTY;
+    elsif num_entries = 1 then
+      return (0 => rpm_start);
+    end if;
+    for j in v_result'range loop
+      v_result(j) := rpm_start + (rpm_end - rpm_start) * real(j) / real(num_entries - 1);
+    end loop;
+    return v_result;
+  end function;
+
   impure function rotary_encoder_get_status(
     constant state : in t_rotary_encoder_state
   ) return t_rotary_encoder_status is
@@ -1274,6 +1903,7 @@ package body rotary_encoder_bfm_pkg is
     constant C_ZERO_GRAY    : integer := gray_index(config.zero_state);
     constant C_JITTER_LIMIT : real    := jitter_limit(config);
     constant C_SIGNAL_ERROR : string  := signal_config_error(config, C_JITTER_LIMIT);
+    constant C_OFFSET_ERROR : string  := edge_offset_error(config);
     variable v_quanta       : real;
     variable v_offset       : integer;
   begin
@@ -1285,11 +1915,14 @@ package body rotary_encoder_bfm_pkg is
       alert(TB_ERROR, C_PROC_CALL & "=> Failed. zero_state must be a 2-bit state of '0'/'1', was " & to_string(config.zero_state) &
                       "." & add_msg_delimiter(msg), scope);
       return;
+    elsif C_OFFSET_ERROR'length > 0 then
+      alert(TB_ERROR, C_PROC_CALL & "=> Failed. " & C_OFFSET_ERROR & add_msg_delimiter(msg), scope);
+      return;
     elsif C_SIGNAL_ERROR'length > 0 then
       alert(TB_ERROR, C_PROC_CALL & "=> Failed. " & C_SIGNAL_ERROR & add_msg_delimiter(msg), scope);
       return;
     end if;
-    v_quanta := round_big(config.start_angle * real(config.cycles_per_rev) * C_QUANTA_PER_DEG);
+    v_quanta := round_big(config.start_angle * real(config.cycles_per_rev) * C_QUANTA_PER_DEG_ELECTRICAL);
     if not is_finite(config.start_angle) or abs(v_quanta) > C_MAX_EXACT then
       alert(TB_ERROR, C_PROC_CALL & "=> Failed. start_angle out of range." & add_msg_delimiter(msg), scope);
       return;
@@ -1297,16 +1930,18 @@ package body rotary_encoder_bfm_pkg is
 
     state.initialized    := true;
     state.zero_gray      := C_ZERO_GRAY;    -- Angle 0 is the centre of the zero state, kept from here on
-    state.cycles_per_rev := config.cycles_per_rev;
+    latch_geometry(state, config);
     state.motion_active  := false;
+    state.seg_moving     := false;
+    state.seg_bounded    := false;
+    state.seg_end        := C_NO_END;
+    state.profile_idx    := 0;
     state.motion         := C_ROTARY_ENCODER_MOTION_DEFAULT;
     state.edges          := 0;
     state.rpm            := 0.0;
-    state.last_rpm       := 0.0;
     state.last_edge_time := time'low;
     state.seed1          := config.rand_seed1;
     state.seed2          := config.rand_seed2;
-    state.jitter_limit   := C_JITTER_LIMIT;
     state.jitter_drawn   := false;
     state.jitter_u       := 0.0;
     state.bounce_pending := false; -- drive_outputs() deletes toggles still scheduled from before
@@ -1315,6 +1950,7 @@ package body rotary_encoder_bfm_pkg is
     state.invalid_reported    := false;
     state.position       := 0;
     normalize(state.position, v_quanta, v_offset); -- The start angle as given
+    settle(state, state.position, v_offset, false);  -- In the state above a boundary, also with edge offsets
     state.offset := v_offset;
     drive_outputs(state, encoder_if, config);
     log(config.id_for_bfm, C_PROC_CALL & "=> position " & to_string(state.position) & ", angle " &
@@ -1482,6 +2118,217 @@ package body rotary_encoder_bfm_pkg is
         scope, msg_id_panel);
   end procedure;
 
+  procedure rotary_encoder_rotate(
+    constant rpm          : in    real;
+    constant duration     : in    time;
+    variable state        : inout t_rotary_encoder_state;
+    constant msg          : in    string;
+    signal   encoder_if   : inout t_rotary_encoder_if;
+    constant scope        : in    string                      := C_BFM_SCOPE;
+    constant msg_id_panel : in    t_msg_id_panel              := shared_msg_id_panel;
+    constant config       : in    t_rotary_encoder_bfm_config := C_ROTARY_ENCODER_BFM_CONFIG_DEFAULT
+  ) is
+    variable v_motion : t_rotary_encoder_motion := C_ROTARY_ENCODER_MOTION_DEFAULT;
+  begin
+    v_motion.kind       := MOTION_ROTATION;
+    v_motion.speed_form := SPEED_RPM;
+    v_motion.rpm        := rpm;
+    execute_rotation(v_motion, duration, "rotary_encoder_rotate(" & speed_string(v_motion) & ", " & to_string(duration, ns) & ")",
+                     state, msg, encoder_if, scope, msg_id_panel, config);
+  end procedure;
+
+  procedure rotary_encoder_rotate(
+    constant direction     : in    t_rotary_encoder_direction;
+    constant time_per_edge : in    time;
+    constant duration      : in    time;
+    variable state         : inout t_rotary_encoder_state;
+    constant msg           : in    string;
+    signal   encoder_if    : inout t_rotary_encoder_if;
+    constant scope         : in    string                      := C_BFM_SCOPE;
+    constant msg_id_panel  : in    t_msg_id_panel              := shared_msg_id_panel;
+    constant config        : in    t_rotary_encoder_bfm_config := C_ROTARY_ENCODER_BFM_CONFIG_DEFAULT
+  ) is
+    variable v_motion : t_rotary_encoder_motion := C_ROTARY_ENCODER_MOTION_DEFAULT;
+  begin
+    v_motion.kind          := MOTION_ROTATION;
+    v_motion.direction     := direction;
+    v_motion.speed_form    := SPEED_TIME_PER_EDGE;
+    v_motion.time_per_edge := time_per_edge;
+    execute_rotation(v_motion, duration, "rotary_encoder_rotate(" & to_upper(to_string(direction)) & ", " & speed_string(v_motion) &
+                     ", " & to_string(duration, ns) & ")", state, msg, encoder_if, scope, msg_id_panel, config);
+  end procedure;
+
+  procedure rotary_encoder_rotate(
+    constant profile        : in    real_vector;
+    constant time_per_entry : in    time;
+    constant profile_end    : in    t_rotary_encoder_profile_end;
+    constant duration       : in    time;
+    variable state          : inout t_rotary_encoder_state;
+    constant msg            : in    string;
+    signal   encoder_if     : inout t_rotary_encoder_if;
+    constant scope          : in    string                      := C_BFM_SCOPE;
+    constant msg_id_panel   : in    t_msg_id_panel              := shared_msg_id_panel;
+    constant config         : in    t_rotary_encoder_bfm_config := C_ROTARY_ENCODER_BFM_CONFIG_DEFAULT
+  ) is
+    constant C_PROC_CALL : string := "rotary_encoder_rotate(profile of " & to_string(profile'length) & " entries, " &
+                                     to_string(time_per_entry, ns) & " per entry, " & to_upper(to_string(profile_end)) & ", " &
+                                     to_string(duration, ns) & ")";
+    variable v_motion    : t_rotary_encoder_motion := C_ROTARY_ENCODER_MOTION_DEFAULT;
+  begin
+    if profile'length = 0 or profile'length > C_ROTARY_ENCODER_VVC_CMD_PROFILE_MAX_LENGTH then
+      alert(TB_ERROR, C_PROC_CALL & "=> Failed. The profile must have 1 to " & to_string(C_ROTARY_ENCODER_VVC_CMD_PROFILE_MAX_LENGTH) &
+                      " entries." & add_msg_delimiter(msg), scope);
+      return;
+    end if;
+    v_motion.kind           := MOTION_ROTATION;
+    v_motion.speed_form     := SPEED_RPM;
+    v_motion.profile_length := profile'length;
+    for i in 0 to profile'length - 1 loop
+      v_motion.profile(i) := profile(profile'low + i);
+    end loop;
+    v_motion.time_per_entry := time_per_entry;
+    v_motion.profile_end    := profile_end;
+    execute_rotation(v_motion, duration, C_PROC_CALL, state, msg, encoder_if, scope, msg_id_panel, config);
+  end procedure;
+
+  procedure rotary_encoder_set_angle(
+    constant angle        : in    real;
+    variable state        : inout t_rotary_encoder_state;
+    constant msg          : in    string;
+    signal   encoder_if   : inout t_rotary_encoder_if;
+    constant scope        : in    string                      := C_BFM_SCOPE;
+    constant msg_id_panel : in    t_msg_id_panel              := shared_msg_id_panel;
+    constant config       : in    t_rotary_encoder_bfm_config := C_ROTARY_ENCODER_BFM_CONFIG_DEFAULT
+  ) is
+    constant C_PROC_CALL : string := "rotary_encoder_set_angle(" & real_image(angle) & " deg)";
+    variable v_quanta    : real    := 0.0;
+    variable v_position  : integer := 0;
+    variable v_offset    : integer;
+  begin
+    if not is_command_valid(state, true, C_PROC_CALL, msg, scope, config) then
+      return;
+    elsif state.motion_active then
+      alert(TB_ERROR, C_PROC_CALL & "=> Failed. Not allowed while a motion is active." & add_msg_delimiter(msg), scope);
+      return;
+    end if;
+    if is_finite(angle) then
+      v_quanta := round_big(angle * real(config.cycles_per_rev) * C_QUANTA_PER_DEG_ELECTRICAL);
+    end if;
+    if not is_finite(angle) or abs(v_quanta) > C_MAX_EXACT then
+      alert(TB_ERROR, C_PROC_CALL & "=> Failed. angle must be finite and within +-" &
+                      real_image(C_MAX_EXACT / (real(config.cycles_per_rev) * C_QUANTA_PER_DEG_ELECTRICAL)) & " deg." & add_msg_delimiter(msg),
+            scope);
+      return;
+    end if;
+    latch_geometry(state, config);
+    apply_stuck(state, encoder_if, config);
+    -- On a boundary the shaft stays on the side of the old angle
+    normalize(v_position, v_quanta, v_offset);
+    settle(state, v_position, v_offset, v_quanta > real(state.position) * C_K_REAL + real(state.offset));
+    if v_position = state.position and v_offset = state.offset then
+      log(config.id_for_bfm, C_PROC_CALL & "=> Already at this angle, nothing changes. Position " & to_string(state.position) & "." &
+                             add_msg_delimiter(msg), scope, msg_id_panel);
+      return;
+    end if;
+    place_shaft(state, encoder_if, v_position, v_offset, C_PROC_CALL, msg, scope, msg_id_panel, config);
+  end procedure;
+
+  procedure rotary_encoder_jump_edges(
+    constant direction    : in    t_rotary_encoder_direction;
+    constant num_edges    : in    natural;
+    variable state        : inout t_rotary_encoder_state;
+    constant msg          : in    string;
+    signal   encoder_if   : inout t_rotary_encoder_if;
+    constant scope        : in    string                      := C_BFM_SCOPE;
+    constant msg_id_panel : in    t_msg_id_panel              := shared_msg_id_panel;
+    constant config       : in    t_rotary_encoder_bfm_config := C_ROTARY_ENCODER_BFM_CONFIG_DEFAULT
+  ) is
+    constant C_PROC_CALL : string  := "rotary_encoder_jump_edges(" & to_upper(to_string(direction)) & ", " & to_string(num_edges) & ")";
+    constant C_DIR       : integer := dir_sign(direction);
+    variable v_position  : integer;
+    variable v_offset    : integer;
+  begin
+    if not is_command_valid(state, true, C_PROC_CALL, msg, scope, config) then
+      return;
+    elsif state.motion_active then
+      alert(TB_ERROR, C_PROC_CALL & "=> Failed. Not allowed while a motion is active." & add_msg_delimiter(msg), scope);
+      return;
+    elsif abs(real(state.position) + real(C_DIR) * real(num_edges)) > real(C_MAX_POSITION) then
+      alert(TB_ERROR, C_PROC_CALL & "=> Failed. The position after the jump would lie beyond +-" & to_string(C_MAX_POSITION) & "." &
+                      add_msg_delimiter(msg), scope);
+      return;
+    end if;
+    latch_geometry(state, config);
+    apply_stuck(state, encoder_if, config);
+    if num_edges = 0 then
+      log(config.id_for_bfm, C_PROC_CALL & "=> 0 edges, nothing changes. Position " & to_string(state.position) & "." &
+                             add_msg_delimiter(msg), scope, msg_id_panel);
+      return;
+    end if;
+    -- The sub-edge fraction is kept; on a boundary the shaft stays on the side of the old angle
+    v_position := state.position + C_DIR * num_edges;
+    v_offset   := state.offset;
+    settle(state, v_position, v_offset, C_DIR > 0);
+    place_shaft(state, encoder_if, v_position, v_offset, C_PROC_CALL, msg, scope, msg_id_panel, config);
+  end procedure;
+
+  procedure rotary_encoder_glitch(
+    constant channel      : in    t_rotary_encoder_channel;
+    constant width        : in    time;
+    variable state        : inout t_rotary_encoder_state;
+    constant msg          : in    string;
+    signal   encoder_if   : inout t_rotary_encoder_if;
+    constant scope        : in    string                      := C_BFM_SCOPE;
+    constant msg_id_panel : in    t_msg_id_panel              := shared_msg_id_panel;
+    constant config       : in    t_rotary_encoder_bfm_config := C_ROTARY_ENCODER_BFM_CONFIG_DEFAULT
+  ) is
+    constant C_PROC_CALL : string := "rotary_encoder_glitch(" & to_upper(to_string(channel)) & ", " & to_string(width, ns) & ")";
+    variable v_stuck     : std_logic;
+    variable v_level     : std_logic;
+    variable v_settled   : boolean;
+  begin
+    if not is_command_valid(state, false, C_PROC_CALL, msg, scope, config) then
+      return;
+    elsif state.motion_active then
+      alert(TB_ERROR, C_PROC_CALL & "=> Failed. Not allowed while a motion is active." & add_msg_delimiter(msg), scope);
+      return;
+    elsif width <= 0 ns then
+      alert(TB_ERROR, C_PROC_CALL & "=> Failed. width must be positive, was " & to_string(width, ns) & "." &
+                      add_msg_delimiter(msg), scope);
+      return;
+    end if;
+    apply_stuck(state, encoder_if, config);
+    settle_bounce(state, encoder_if, v_settled);
+    if v_settled then
+      wait for 0 ns; -- The bounced channel settles one delta before the pulse
+    end if;
+    if channel = CHANNEL_A then
+      v_stuck := config.a_stuck;
+      v_level := state.ab(1);
+    else
+      v_stuck := config.b_stuck;
+      v_level := state.ab(0);
+    end if;
+    if v_stuck /= C_NOT_STUCK then
+      -- A stuck output cannot pulse
+      wait for width;
+      log(config.id_for_bfm, C_PROC_CALL & "=> The output is stuck at '" & to_string(v_stuck) & "': no pulse. Position " &
+                             to_string(state.position) & "." & add_msg_delimiter(msg), scope, msg_id_panel);
+      return;
+    end if;
+    if channel = CHANNEL_A then
+      encoder_if.a <= not v_level;
+      wait for width;
+      encoder_if.a <= v_level;
+    else
+      encoder_if.b <= not v_level;
+      wait for width;
+      encoder_if.b <= v_level;
+    end if;
+    log(config.id_for_bfm, C_PROC_CALL & "=> Pulse done. Position " & to_string(state.position) & "." & add_msg_delimiter(msg),
+        scope, msg_id_panel);
+  end procedure;
+
   procedure rotary_encoder_set_motion(
     constant motion       : in    t_rotary_encoder_motion;
     variable state        : inout t_rotary_encoder_state;
@@ -1509,33 +2356,41 @@ package body rotary_encoder_bfm_pkg is
     constant C_PROC_CALL : string := "rotary_encoder_run_motion()";
     variable v_config    : t_rotary_encoder_bfm_config;
     variable v_time      : time;
-    variable v_edge      : boolean;
+    variable v_next      : t_next_event;
     variable v_settled   : boolean;
+    variable v_pass      : boolean;
   begin
     if state.motion_active then
       -- The signal configuration of this call (re-read by the VVC at every call), or the last valid one
       resolve_signal_config(state, config, v_config, C_PROC_CALL, msg, scope);
     end if;
     while state.motion_active loop
-      next_motion_event(state, v_config.jitter, v_time, v_edge);
-      if v_time > now then
+      next_motion_event(state, v_config.jitter, v_time, v_next);
+      if v_next = NEXT_NONE then
+        wait on interrupt; -- A rotation at 0 rpm without a profile: nothing happens until the next request
+        event := MOTION_INTERRUPTED;
+        return;
+      elsif v_time > now then
         wait on interrupt for v_time - now;
         if now < v_time then
           event := MOTION_INTERRUPTED;
           return;
         end if;
-      elsif v_edge and state.last_edge_time = now then
+      elsif v_next = NEXT_EDGE and state.last_edge_time = now then
         wait on interrupt for 0 ns; -- One delta per edge. An interrupt at the edge time comes after the edge
       end if;
-      if v_edge then
+      if v_next = NEXT_EDGE then
         cut_bounce(state, encoder_if, v_config, v_settled, C_PROC_CALL, msg, scope);
         if v_settled then
           wait on interrupt for 0 ns; -- The bounced channel settles one delta before the edge
         end if;
       end if;
-      motion_step(state, encoder_if, v_config, v_edge);
-      if v_edge then
+      motion_step(state, encoder_if, v_config, v_next, v_pass);
+      if v_next = NEXT_EDGE then
         event := MOTION_EDGE;
+        return;
+      elsif v_pass and state.motion_active then
+        event := MOTION_PROFILE_PASS;
         return;
       end if;
     end loop;
@@ -1545,16 +2400,8 @@ package body rotary_encoder_bfm_pkg is
   procedure rotary_encoder_halt_motion(
     variable state : inout t_rotary_encoder_state
   ) is
-    variable v_angle : t_angle;
   begin
-    if state.motion_active then
-      v_angle             := current_angle(state);
-      state.position      := v_angle.position;
-      state.offset        := v_angle.offset;
-      state.motion_active := false;
-      state.rpm           := 0.0;
-      state.jitter_drawn  := false;
-    end if;
+    halt(state);
   end procedure;
 
 end package body rotary_encoder_bfm_pkg;

@@ -157,6 +157,55 @@ architecture func of rotary_encoder_bfm_tb is
   constant C_JITTER_BELOW_B : real          := C_JITTER_LIMIT_B - 1.0;                       -- 29 deg: accepted
   constant C_BAD_JITTERS    : real_vector   := (C_JITTER_LIMIT, -1.0, real'high);
 
+  -- set_angle_and_jump_edges: jump distances and what the decoder sees for a forward jump (hand values: N mod 4 = 1 is
+  -- one edge forward, 2 an illegal transition, 3 one edge back, 0 nothing; one revolution changes neither A/B nor Z)
+  constant C_JUMP_EDGES        : integer_vector := (1, 2, 3, 4, C_EDGES_PER_REV);
+  constant C_JUMP_DECODED      : integer_vector := (1, 0, -1, 0, 0);
+  constant C_JUMP_ILLEGAL      : integer_vector := (0, 1, 0, 0, 0);
+  constant C_JUMP_AB_EVENTS    : integer_vector := (1, 1, 1, 0, 0);
+  constant C_SET_ANGLE_FROM    : integer        := 5;     -- Position before the set-angle steps
+  constant C_SET_ANGLE_30      : real           := 30.0;  -- Position 7
+  constant C_SET_ANGLE_30_POS  : integer        := 7;
+
+  -- glitch, invalid_fault_event
+  constant C_GLITCH_WIDTH      : time        := 30 ns;
+  constant C_BAD_WIDTHS_GLITCH : time_vector := (0 ns, -1 ns);
+  constant C_BAD_ANGLES        : real_vector := (real'high, real'low);
+
+  -- edge_offsets: time form 1 us per edge; offsets in electrical degrees
+  constant C_OFFSET_TPE        : time        := 1 us;
+  constant C_OFFSET_EDGES      : positive    := 2 * C_EDGES_PER_CYCLE;
+  constant C_DUTY_OFFSET       : real        := 20.0;  -- A rise +20 deg, A fall -20 deg: A high 40 deg shorter
+  constant C_MAX_OFFSET_OK     : real        := 44.0;  -- Largest offset tested inside the open interval +-45 deg
+  constant C_OFFSET_RPMS       : integer_vector := (60, 600);
+  constant C_BAD_OFFSETS       : real_vector := (C_DEG_ELECTRICAL_PER_EDGE / 2.0, -C_DEG_ELECTRICAL_PER_EDGE / 2.0, real'high);
+
+  -- stuck_outputs
+  constant C_STUCK_REVS        : positive := 3;
+  constant C_BAD_STUCK         : std_logic_vector(0 to 2) := "XUH"; -- Invalid stuck levels for a_stuck, b_stuck, z_stuck
+
+  -- bfm_only_flow_and_rotate. Rpm form at 60 rpm (12.5 ms per edge) and 120 rpm (6.25 ms per edge); time form 1 us per edge.
+  constant C_ROTATE_TIME       : time        := 50 ms;   -- 4 edge angles at 60 rpm, 8 at 120 rpm
+  constant C_ROTATE_RPM        : positive    := 60;
+  constant C_ROTATE_RPM_FAST   : positive    := 120;
+  constant C_ROTATE_TPE        : time        := 1 us;
+  constant C_ROTATE_TPE_TIME   : time        := 2.75 us; -- 2.75 edge angles in reverse: 3 edges, position -3
+  constant C_ENTRY_TIME        : time        := 25 ms;
+  constant C_PROFILE           : real_vector := (60.0, 120.0);
+  constant C_PROFILE_ZERO      : real_vector := (0.0, 60.0);
+  -- Hand values: (60, 120) rpm, 25 ms per entry, from the centre of a state
+  constant C_PROFILE_EDGES     : time_vector := (6.25 ms, 18.75 ms, 28.125 ms, 34.375 ms, 40.625 ms, 46.875 ms);
+  constant C_PROFILE_HOLD_EDGES   : time_vector := (53.125 ms, 59.375 ms);           -- Then every 6.25 ms
+  constant C_PROFILE_REPEAT_EDGES : time_vector := (56.25 ms, 68.75 ms, 78.125 ms);  -- The profile again from 50 ms
+  constant C_PROFILE_ZERO_EDGES   : time_vector := (31.25 ms, 43.75 ms);
+  constant C_PROFILE_END       : time        := 2 * C_ENTRY_TIME;
+  constant C_EMPTY_PROFILE     : real_vector(1 to 0) := (others => 0.0);
+
+  -- linear_ramp_rotation: slow start-up from standstill, 0 to C_RAMP_RPM_END rpm in steps of 1 rpm. An entry of
+  -- C_RAMP_ENTRY_TIME at j rpm covers j * 4 edge angles, so every entry starts and ends in a state centre.
+  constant C_RAMP_RPM_END      : positive    := 60;
+  constant C_RAMP_ENTRY_TIME   : time        := 3 sec;
+
   signal enc_if : t_rotary_encoder_if := init_rotary_encoder_if_signals(VOID);
   signal log_id : positive            := C_ID; -- Log that p_logger writes to
 
@@ -200,6 +249,8 @@ begin
     variable v_activations : natural;
     variable v_expected   : time_vector(1 to C_JITTER_EDGES);
     variable v_edge_t     : time;
+    variable v_pos        : integer;
+    variable v_event      : t_enc_event;
 
     -- Default configuration with start angle
     function config_with(
@@ -365,6 +416,107 @@ begin
       update_debug;
     end procedure;
 
+    procedure jump(
+      constant direction : in t_rotary_encoder_direction;
+      constant num_edges : in natural) is
+    begin
+      show_config(v_config);
+      rotary_encoder_jump_edges(direction, num_edges, v_state, "jump", enc_if, config => v_config);
+      update_debug;
+    end procedure;
+
+    procedure set_angle(
+      constant degrees : in real) is
+    begin
+      show_config(v_config);
+      rotary_encoder_set_angle(degrees, v_state, "set angle", enc_if, config => v_config);
+      update_debug;
+    end procedure;
+
+    procedure glitch(
+      constant channel : in t_rotary_encoder_channel;
+      constant width   : in time) is
+    begin
+      show_config(v_config);
+      rotary_encoder_glitch(channel, width, v_state, "glitch", enc_if, config => v_config);
+      update_debug;
+    end procedure;
+
+    procedure rotate(
+      constant rpm      : in real;
+      constant duration : in time) is
+    begin
+      show_config(v_config);
+      rotary_encoder_rotate(rpm, duration, v_state, "rotate", enc_if, config => v_config);
+      update_debug;
+    end procedure;
+
+    procedure rotate(
+      constant direction     : in t_rotary_encoder_direction;
+      constant time_per_edge : in time;
+      constant duration      : in time) is
+    begin
+      show_config(v_config);
+      rotary_encoder_rotate(direction, time_per_edge, duration, v_state, "rotate", enc_if, config => v_config);
+      update_debug;
+    end procedure;
+
+    procedure rotate(
+      constant profile        : in real_vector;
+      constant time_per_entry : in time;
+      constant profile_end    : in t_rotary_encoder_profile_end;
+      constant duration       : in time) is
+    begin
+      show_config(v_config);
+      rotary_encoder_rotate(profile, time_per_entry, profile_end, duration, v_state, "rotate with profile", enc_if,
+                            config => v_config);
+      update_debug;
+    end procedure;
+
+    -- Log entries (since the last clear) in which channel changed
+    impure function num_events(
+      constant channel : in t_rotary_encoder_channel) return natural is
+      variable v_count : natural := 0;
+    begin
+      for i in 0 to shared_th_event_log.count(C_ID) - 1 loop
+        if (channel = CHANNEL_A and shared_th_event_log.get(C_ID, i).a_changed) or
+           (channel = CHANNEL_B and shared_th_event_log.get(C_ID, i).b_changed) then
+          v_count := v_count + 1;
+        end if;
+      end loop;
+      return v_count;
+    end function;
+
+    -- Log entries (since the last clear) in which A or B changed
+    impure function num_ab_events return natural is
+      variable v_count : natural := 0;
+    begin
+      for i in 0 to shared_th_event_log.count(C_ID) - 1 loop
+        if shared_th_event_log.get(C_ID, i).a_changed or shared_th_event_log.get(C_ID, i).b_changed then
+          v_count := v_count + 1;
+        end if;
+      end loop;
+      return v_count;
+    end function;
+
+    -- Default configuration with the same offset on both edges of B
+    function b_offset_config(
+      constant offset : in real) return t_rotary_encoder_bfm_config is
+      variable v_result : t_rotary_encoder_bfm_config := C_ROTARY_ENCODER_BFM_CONFIG_DEFAULT;
+    begin
+      v_result.b_rise_offset := offset;
+      v_result.b_fall_offset := offset;
+      return v_result;
+    end function;
+
+    -- The edge from position to position + 1 is on B (the B level differs between the two states)
+    function is_b_edge(
+      constant zero_state : in std_logic_vector(1 downto 0);
+      constant position   : in integer) return boolean is
+    begin
+      return tb_state(zero_state, position)(0) /= tb_state(zero_state, position + 1)(0);
+    end function;
+
     -- Index stimulus: C_INDEX_REVS revolutions plus C_INDEX_EXTRA edges in direction, then back to the start
     procedure index_stimulus(
       constant direction : in t_rotary_encoder_direction) is
@@ -379,6 +531,14 @@ begin
       end if;
     end procedure;
 
+    -- Lets the logger record an edge driven at the current time: a move whose last edge lies on its end (a jittered
+    -- edge clamped to the end, or an end on a boundary) returns in the delta of that edge
+    procedure wait_for_logger is
+    begin
+      wait for 0 ns;
+      wait for 0 ns;
+    end procedure;
+
     -- A move with config whose call must be accepted: no new TB_ERROR, the checker sees num_edges edges forward
     procedure check_accepted(
       constant config : in t_rotary_encoder_bfm_config;
@@ -388,6 +548,7 @@ begin
       shared_th_event_log.clear(C_ID);
       show_config(config);
       rotary_encoder_move_edges(FORWARD, C_EDGES_PER_CYCLE, C_TPE, v_state, msg, enc_if, config => config);
+      wait_for_logger;
       check_value(get_alert_counter(TB_ERROR) - v_alerts, 0, ERROR, "no TB_ERROR: " & msg, C_SCOPE, ID_SEQUENCER_SUB);
       check_checker(shared_th_event_log, C_ID, C_EDGES_PER_CYCLE, msg);
     end procedure;
@@ -531,6 +692,30 @@ begin
     begin
       check_value_in_range(now - v_t_start, expected - tolerance, expected + tolerance, ERROR, "duration: " & msg, C_SCOPE,
                            ID_SEQUENCER_SUB);
+    end procedure;
+
+    -- linear_ramp: actual equals expected entry by entry (exact: the hand values are exact in binary floating point)
+    procedure check_ramp(
+      constant actual   : in real_vector;
+      constant expected : in real_vector;
+      constant msg      : in string) is
+    begin
+      check_value(actual'length, expected'length, ERROR, "length: " & msg, C_SCOPE, ID_SEQUENCER_SUB);
+      if actual'length = expected'length then
+        for j in 0 to expected'length - 1 loop
+          check_value(actual(actual'low + j), expected(expected'low + j), ERROR, "entry " & to_string(j) & ": " & msg, C_SCOPE,
+                      ID_SEQUENCER_SUB);
+        end loop;
+      end if;
+    end procedure;
+
+    -- Rotation status at rest after a timed rotation
+    procedure check_at_rest(
+      constant msg : in string) is
+    begin
+      v_status := rotary_encoder_get_status(v_state);
+      check_value(v_status.is_rotating, false, ERROR, "status is_rotating: " & msg, C_SCOPE, ID_SEQUENCER_SUB);
+      check_value(v_status.rpm, 0.0, ERROR, "status rpm: " & msg, C_SCOPE, ID_SEQUENCER_SUB);
     end procedure;
 
     -- testbench_self_test: drives the interface directly (testbench self-test, no BFM procedure involved)
@@ -1241,6 +1426,12 @@ begin
       check_value(shared_th_event_log.num_edges(C_ID), 2, ERROR, "edge count", C_SCOPE, ID_SEQUENCER_SUB);
       check_checker(shared_th_event_log, C_ID, 2, "forward");
       check_status(2, C_ANGLE_10, "forward");
+      -- The other status fields at rest: the state of position 2, Z inactive (the default index is at position 0)
+      check_value(v_status.ab, tb_state(C_DEFAULT.zero_state, 2), MATCH_EXACT, ERROR, "status ab", C_SCOPE,
+                  msg_id => ID_SEQUENCER_SUB);
+      check_value(v_status.index_active, false, ERROR, "status index_active", C_SCOPE, ID_SEQUENCER_SUB);
+      check_value(v_status.is_rotating, false, ERROR, "status is_rotating", C_SCOPE, ID_SEQUENCER_SUB);
+      check_value(v_status.rpm, 0.0, ERROR, "status rpm", C_SCOPE, ID_SEQUENCER_SUB);
       init_encoder(config_with(0.0));
       angle(REVERSE, C_ANGLE_10, C_TPE_ANGLE);
       check_checker(shared_th_event_log, C_ID, -2, "reverse");
@@ -1459,6 +1650,524 @@ begin
       edges(FORWARD, 1, C_TPE);
       check_event_time(0, v_t_start + C_TPE / 2, 0 ns, "edge 0.5 time_per_edge after the start");
       check_checker(shared_th_event_log, C_ID, 1, "centre state, then 1 edge");
+
+    --============================================================================================================================
+    elsif GC_TESTCASE = "set_angle_and_jump_edges" then
+      -- Jumps from each of the four states, both directions: the outputs change in one delta, in zero time
+      log_step("Jump of 1, 2, 3, 4 edges and one revolution, from each state, both directions");
+      for s in 0 to C_EDGES_PER_CYCLE - 1 loop
+        for i in C_JUMP_EDGES'range loop
+          for d in t_rotary_encoder_direction loop
+            v_dir := dir_sign(d);
+            v_pos := s + v_dir * C_JUMP_EDGES(i);
+            init_encoder(config_with(real(s) * C_DEG_PER_EDGE));
+            v_t_start := now;
+            jump(d, C_JUMP_EDGES(i));
+            check_value(now, v_t_start, ERROR, "zero time", C_SCOPE, ID_SEQUENCER_SUB);
+            wait_for_logger;
+            check_value(num_ab_events, C_JUMP_AB_EVENTS(i), ERROR, "entries with an A/B change", C_SCOPE, ID_SEQUENCER_SUB);
+            check_checker(shared_th_event_log, C_ID, v_dir * C_JUMP_DECODED(i), "jump " & to_string(d) & " " &
+                          to_string(C_JUMP_EDGES(i)) & " from state " & to_string(s), exp_illegal => C_JUMP_ILLEGAL(i));
+            check_status(v_pos, real(v_pos) * C_DEG_PER_EDGE, "jump " & to_string(d) & " " & to_string(C_JUMP_EDGES(i)));
+            check_z_model(v_pos, "after the jump");
+            if C_JUMP_EDGES(i) = C_EDGES_PER_REV then
+              check_value(shared_th_event_log.count(C_ID), 0, ERROR, "one revolution: no event, no index pulse", C_SCOPE,
+                          ID_SEQUENCER_SUB);
+            end if;
+          end loop;
+        end loop;
+      end loop;
+
+      -- The index stays consistent: Z follows the model from the new position
+      log_step("After a jump of 2 edges, one revolution forward from the new state");
+      init_encoder(C_DEFAULT);
+      jump(FORWARD, 2);
+      wait_for_logger;
+      shared_th_event_log.clear(C_ID);
+      edges(FORWARD, C_EDGES_PER_REV, C_TPE);
+      check_z_follows_ab(shared_th_event_log, C_ID, 2, v_config.zero_state, v_config.index_state, v_config.index_width,
+                         v_config.index_position, v_config.cycles_per_rev, v_config.index_inverted, v_activations,
+                         "revolution after the jump");
+      check_value(v_activations, 1, ERROR, "one index pulse in the revolution", C_SCOPE, ID_SEQUENCER_SUB);
+      check_checker(shared_th_event_log, C_ID, C_EDGES_PER_REV, "revolution after the jump");
+
+      log_step("Set angle from position " & to_string(C_SET_ANGLE_FROM) & " to 0 deg and to " & to_string(C_SET_ANGLE_30, 1) & " deg");
+      init_encoder(C_DEFAULT);
+      go_to_position(C_SET_ANGLE_FROM);
+      shared_th_event_log.clear(C_ID);
+      v_t_start := now;
+      set_angle(0.0);
+      check_value(now, v_t_start, ERROR, "zero time", C_SCOPE, ID_SEQUENCER_SUB);
+      wait_for_logger;
+      check_value(std_logic_vector'(enc_if.a & enc_if.b), C_DEFAULT.zero_state, MATCH_EXACT, ERROR, "AB = zero state at 0 deg",
+                  C_SCOPE, msg_id => ID_SEQUENCER_SUB);
+      check_z_model(0, "set angle 0 deg");
+      check_status(0, 0.0, "set angle 0 deg");
+      -- 5 edges back: one edge on one channel
+      check_value(num_ab_events, 1, ERROR, "one A/B entry", C_SCOPE, ID_SEQUENCER_SUB);
+      set_angle(C_SET_ANGLE_30);
+      wait_for_logger;
+      check_status(C_SET_ANGLE_30_POS, C_SET_ANGLE_30, "set angle " & to_string(C_SET_ANGLE_30, 1) & " deg");
+      check_value(std_logic_vector'(enc_if.a & enc_if.b), tb_state(C_DEFAULT.zero_state, C_SET_ANGLE_30_POS), MATCH_EXACT, ERROR,
+                  "AB at " & to_string(C_SET_ANGLE_30, 1) & " deg", C_SCOPE, msg_id => ID_SEQUENCER_SUB);
+
+      -- The boundary between positions 0 and 1 lies at half an edge angle
+      log_step("Set angle onto a boundary: the shaft stays on the side of the old angle");
+      init_encoder(C_DEFAULT);
+      set_angle(0.5 * C_DEG_PER_EDGE);
+      check_status(0, 0.5 * C_DEG_PER_EDGE, "from 0 deg");
+      init_encoder(config_with(C_DEG_PER_EDGE));
+      set_angle(0.5 * C_DEG_PER_EDGE);
+      check_status(1, 0.5 * C_DEG_PER_EDGE, "from one edge angle");
+      wait_for_logger;
+      check_value(shared_th_event_log.count(C_ID), 0, ERROR, "no event: the state is unchanged", C_SCOPE, ID_SEQUENCER_SUB);
+
+      log_step("Set the current angle again: nothing changes");
+      set_angle(0.5 * C_DEG_PER_EDGE);
+      wait_for_logger;
+      check_value(shared_th_event_log.count(C_ID), 0, ERROR, "no event", C_SCOPE, ID_SEQUENCER_SUB);
+      check_status(1, 0.5 * C_DEG_PER_EDGE, "unchanged");
+
+      log_step("After set angle " & to_string(C_SET_ANGLE_30, 1) & " deg, one revolution forward");
+      set_angle(C_SET_ANGLE_30);
+      wait_for_logger;
+      shared_th_event_log.clear(C_ID);
+      edges(FORWARD, C_EDGES_PER_REV, C_TPE);
+      check_z_follows_ab(shared_th_event_log, C_ID, C_SET_ANGLE_30_POS, v_config.zero_state, v_config.index_state,
+                         v_config.index_width, v_config.index_position, v_config.cycles_per_rev, v_config.index_inverted,
+                         v_activations, "revolution after set angle");
+      check_value(v_activations, 1, ERROR, "one index pulse in the revolution", C_SCOPE, ID_SEQUENCER_SUB);
+      check_checker(shared_th_event_log, C_ID, C_EDGES_PER_REV, "revolution after set angle");
+
+    --============================================================================================================================
+    elsif GC_TESTCASE = "glitch" then
+      -- A pulse on one channel, back to the previous level; position and state unchanged
+      for c in t_rotary_encoder_channel loop
+        log_step("Glitch on " & to_string(c));
+        init_encoder(C_DEFAULT);
+        v_t_start := now;
+        glitch(c, C_GLITCH_WIDTH);
+        check_duration(C_GLITCH_WIDTH, 0 ns, "glitch");
+        wait_for_logger;
+        check_value(shared_th_event_log.count(C_ID), 2, ERROR, "two entries", C_SCOPE, ID_SEQUENCER_SUB);
+        check_value(num_events(c), 2, ERROR, "both on " & to_string(c), C_SCOPE, ID_SEQUENCER_SUB);
+        check_event_time(0, v_t_start, 0 ns, "pulse start");
+        check_event_time(1, v_t_start + C_GLITCH_WIDTH, 0 ns, "pulse end");
+        check_value(std_logic_vector'(enc_if.a & enc_if.b), C_DEFAULT.zero_state, MATCH_EXACT, ERROR, "back to the previous state",
+                    C_SCOPE, msg_id => ID_SEQUENCER_SUB);
+        check_status(0, 0.0, "position unchanged");
+        check_checker(shared_th_event_log, C_ID, 0, "glitch decodes as one edge forth and back");
+        shared_th_event_log.clear(C_ID);
+        edges(FORWARD, C_EDGES_PER_CYCLE, C_TPE);
+        check_checker(shared_th_event_log, C_ID, C_EDGES_PER_CYCLE, "move after the glitch");
+      end loop;
+
+      log_step("Glitch on a stuck channel: no pulse, no alert, completes after the width");
+      v_bad_config         := C_DEFAULT;
+      v_bad_config.a_stuck := '0';
+      init_encoder(v_bad_config);
+      v_alerts  := get_alert_counter(TB_WARNING) + get_alert_counter(TB_ERROR);
+      v_t_start := now;
+      glitch(CHANNEL_A, C_GLITCH_WIDTH);
+      check_duration(C_GLITCH_WIDTH, 0 ns, "glitch on a stuck channel");
+      wait_for_logger;
+      check_value(shared_th_event_log.count(C_ID), 0, ERROR, "no event", C_SCOPE, ID_SEQUENCER_SUB);
+      check_value(get_alert_counter(TB_WARNING) + get_alert_counter(TB_ERROR) - v_alerts, 0, ERROR, "no alert", C_SCOPE,
+                  ID_SEQUENCER_SUB);
+
+    --============================================================================================================================
+    elsif GC_TESTCASE = "invalid_fault_event" then
+      log_step("Invalid glitch width");
+      init_encoder(C_DEFAULT);
+      for i in C_BAD_WIDTHS_GLITCH'range loop
+        begin_reject("glitch width " & to_string(C_BAD_WIDTHS_GLITCH(i), ns));
+        glitch(CHANNEL_A, C_BAD_WIDTHS_GLITCH(i));
+        end_reject("glitch width " & to_string(C_BAD_WIDTHS_GLITCH(i), ns));
+      end loop;
+
+      log_step("Set angle not finite");
+      for i in C_BAD_ANGLES'range loop
+        begin_reject("set angle " & real'image(C_BAD_ANGLES(i)));
+        set_angle(C_BAD_ANGLES(i));
+        end_reject("set angle " & real'image(C_BAD_ANGLES(i)));
+      end loop;
+      check_status(0, 0.0, "after the rejected calls");
+
+    --============================================================================================================================
+    elsif GC_TESTCASE = "edge_offsets" then
+      -- An offset is an angle: the same in both directions, so a positive offset makes the edge later going forward and
+      -- earlier going in reverse. Edge k crosses the boundary between positions p and p + 1.
+      for d in t_rotary_encoder_direction loop
+        log_step("B offset " & to_string(C_B_OFFSET, 1) & " deg, time form, " & to_string(d));
+        v_dir        := dir_sign(d);
+        v_bad_config := b_offset_config(C_B_OFFSET);
+        if d = REVERSE then
+          v_bad_config.start_angle := real(C_OFFSET_EDGES) * C_DEG_PER_EDGE;
+        end if;
+        init_encoder(v_bad_config);
+        v_t_start := now;
+        edges(d, C_OFFSET_EDGES, C_OFFSET_TPE);
+        check_duration(C_OFFSET_EDGES * C_OFFSET_TPE, 0 ns, "completion unchanged by the offset");
+        for k in 1 to C_OFFSET_EDGES loop
+          if d = FORWARD then
+            v_pos := k - 1;
+          else
+            v_pos := C_OFFSET_EDGES - k;
+          end if;
+          v_edge_t := v_t_start + (2 * k - 1) * C_OFFSET_TPE / 2;
+          if is_b_edge(v_config.zero_state, v_pos) then
+            v_edge_t := v_edge_t + v_dir * C_OFFSET_TPE * (C_B_OFFSET / C_DEG_ELECTRICAL_PER_EDGE);
+          end if;
+          check_event_time(k - 1, v_edge_t, C_RESOLUTION, to_string(d) & " edge " & to_string(k));
+        end loop;
+        check_checker(shared_th_event_log, C_ID, v_dir * C_OFFSET_EDGES, "B offset, " & to_string(d));
+      end loop;
+
+      -- With zero state 11 the A rise lies at 2.5 and the A fall at 4.5 edge angles
+      log_step("A rise +" & to_string(C_DUTY_OFFSET, 1) & " deg, A fall -" & to_string(C_DUTY_OFFSET, 1) & " deg: A high time shorter");
+      v_bad_config               := C_DEFAULT;
+      v_bad_config.a_rise_offset := C_DUTY_OFFSET;
+      v_bad_config.a_fall_offset := -C_DUTY_OFFSET;
+      init_encoder(v_bad_config);
+      edges(FORWARD, C_OFFSET_EDGES, C_OFFSET_TPE);
+      v_num := 0;  -- 0: looking for an A rise, 1: for the following A fall, 2: found
+      for i in 0 to shared_th_event_log.count(C_ID) - 1 loop
+        v_event := shared_th_event_log.get(C_ID, i);
+        if v_event.a_changed and v_event.a = '1' and v_num = 0 then
+          v_edge_t := v_event.time_stamp;
+          v_num    := 1;
+        elsif v_event.a_changed and v_event.a = '0' and v_num = 1 then
+          v_time_out := v_event.time_stamp - v_edge_t;
+          v_num      := 2;
+        end if;
+      end loop;
+      check_value(v_num, 2, ERROR, "A rise and fall found", C_SCOPE, ID_SEQUENCER_SUB);
+      -- High for two edge angles minus the two offsets; each edge rounded once
+      v_edge_t := 2 * C_OFFSET_TPE - C_OFFSET_TPE * (2.0 * C_DUTY_OFFSET / C_DEG_ELECTRICAL_PER_EDGE);
+      check_value_in_range(v_time_out, v_edge_t - C_RPM_EDGE_TOL, v_edge_t + C_RPM_EDGE_TOL, ERROR, "A high time", C_SCOPE,
+                           ID_SEQUENCER_SUB);
+      check_checker(shared_th_event_log, C_ID, C_OFFSET_EDGES, "duty error");
+
+      -- The displacement scales with time_per_edge
+      for r in C_OFFSET_RPMS'range loop
+        log_step("B offset " & to_string(C_B_OFFSET, 1) & " deg at " & to_string(C_OFFSET_RPMS(r)) & " rpm");
+        init_encoder(b_offset_config(C_B_OFFSET));
+        v_t_start := now;
+        edges(FORWARD, C_OFFSET_EDGES, real(C_OFFSET_RPMS(r)));
+        for k in 1 to C_OFFSET_EDGES loop
+          v_edge_t := ideal_edge_time(v_t_start, k, C_OFFSET_RPMS(r), C_CPR);
+          if is_b_edge(v_config.zero_state, k - 1) then
+            v_edge_t := v_edge_t + ideal_move_time(0 ns, 1, C_OFFSET_RPMS(r), C_CPR) * (C_B_OFFSET / C_DEG_ELECTRICAL_PER_EDGE);
+          end if;
+          check_event_time(k - 1, v_edge_t, C_RPM_EDGE_TOL, to_string(C_OFFSET_RPMS(r)) & " rpm, edge " & to_string(k));
+        end loop;
+        check_checker(shared_th_event_log, C_ID, C_OFFSET_EDGES, to_string(C_OFFSET_RPMS(r)) & " rpm");
+      end loop;
+
+      for s in -1 to 1 loop
+        next when s = 0;
+        log_step("All four offsets at " & to_string(real(s) * C_MAX_OFFSET_OK, 1) & " deg: a 4-edge move ends in the zero state");
+        v_bad_config               := C_DEFAULT;
+        v_bad_config.a_rise_offset := real(s) * C_MAX_OFFSET_OK;
+        v_bad_config.a_fall_offset := real(s) * C_MAX_OFFSET_OK;
+        v_bad_config.b_rise_offset := real(s) * C_MAX_OFFSET_OK;
+        v_bad_config.b_fall_offset := real(s) * C_MAX_OFFSET_OK;
+        init_encoder(v_bad_config);
+        v_t_start := now;
+        edges(FORWARD, C_EDGES_PER_CYCLE, C_OFFSET_TPE);
+        check_duration(C_EDGES_PER_CYCLE * C_OFFSET_TPE, 0 ns, "duration as without offsets");
+        wait_for_logger;
+        check_value(std_logic_vector'(enc_if.a & enc_if.b), C_DEFAULT.zero_state, MATCH_EXACT, ERROR, "ends in the zero state",
+                    C_SCOPE, msg_id => ID_SEQUENCER_SUB);
+        check_status(C_EDGES_PER_CYCLE, real(C_EDGES_PER_CYCLE) * C_DEG_PER_EDGE, "offsets " & to_string(real(s) * C_MAX_OFFSET_OK, 1));
+        check_checker(shared_th_event_log, C_ID, C_EDGES_PER_CYCLE, "offsets " & to_string(real(s) * C_MAX_OFFSET_OK, 1));
+      end loop;
+
+      log_step("Invalid edge offsets");
+      init_encoder(C_DEFAULT);
+      for i in C_BAD_OFFSETS'range loop
+        v_bad_config := C_DEFAULT;
+        if i = 0 then
+          v_bad_config.a_rise_offset := C_BAD_OFFSETS(i);
+        elsif i = 1 then
+          v_bad_config.b_fall_offset := C_BAD_OFFSETS(i);
+        else
+          v_bad_config.a_fall_offset := C_BAD_OFFSETS(i);
+        end if;
+        reject_move(v_bad_config, "edge offset " & real'image(C_BAD_OFFSETS(i)));
+      end loop;
+
+      log_step("Z with a B offset: Z changes together with the displaced A/B edges");
+      init_encoder(b_offset_config(C_B_OFFSET));
+      index_stimulus(FORWARD);
+      check_z_follows_ab(shared_th_event_log, C_ID, 0, v_config.zero_state, v_config.index_state, v_config.index_width,
+                         v_config.index_position, v_config.cycles_per_rev, v_config.index_inverted, v_activations,
+                         "B offset " & to_string(C_B_OFFSET, 1));
+      check_value(v_activations >= 2 * C_INDEX_REVS, ERROR, "index pulses seen", C_SCOPE, ID_SEQUENCER_SUB);
+      check_checker(shared_th_event_log, C_ID, 0, "index stimulus with B offset");
+
+    --============================================================================================================================
+    elsif GC_TESTCASE = "stuck_outputs" then
+      log_step("B stuck at '0' during " & to_string(C_STUCK_REVS) & " revolutions");
+      init_encoder(C_DEFAULT);
+      v_config.b_stuck := '0';
+      edges(FORWARD, 0, C_TPE);  -- The stuck setting is applied at the start of a command
+      wait_for_logger;
+      check_value(enc_if.b, '0', MATCH_EXACT, ERROR, "B stuck at '0' from the start of the command", C_SCOPE, ID_SEQUENCER_SUB);
+      shared_th_event_log.clear(C_ID);
+      v_num := C_STUCK_REVS * C_EDGES_PER_REV;
+      edges(FORWARD, v_num, C_TPE);
+      wait_for_logger;
+      check_value(num_events(CHANNEL_B), 0, ERROR, "no event on B", C_SCOPE, ID_SEQUENCER_SUB);
+      -- A changes at every second edge
+      check_value(num_events(CHANNEL_A), v_num / 2, ERROR, "A toggles as without the fault", C_SCOPE, ID_SEQUENCER_SUB);
+      check_status(v_num, real(v_num) * C_DEG_PER_EDGE, "the model keeps running");
+      check_checker(shared_th_event_log, C_ID, 0, "A alone decodes as one edge forth and back");
+
+      log_step("B released: the next command drives B to the level of the current state at its start");
+      v_config.b_stuck := '-';
+      shared_th_event_log.clear(C_ID);
+      v_t_start := now;
+      edges(FORWARD, 1, C_TPE);
+      check_event_time(0, v_t_start, 0 ns, "B released at the start of the command");
+      check_value(shared_th_event_log.get(C_ID, 0).b, tb_state(C_DEFAULT.zero_state, v_num)(0), MATCH_EXACT, ERROR,
+                  "B at the level of the current state", C_SCOPE, ID_SEQUENCER_SUB);
+      check_status(v_num + 1, real(v_num + 1) * C_DEG_PER_EDGE, "after the release");
+      -- The release itself decodes as one edge, then the move's edge
+      check_checker(shared_th_event_log, C_ID, 2, "release and one edge");
+
+      log_step("Z stuck at 'Z' during one revolution");
+      v_bad_config         := C_DEFAULT;
+      v_bad_config.z_stuck := 'Z';
+      init_encoder(v_bad_config);
+      check_value(enc_if.z, 'Z', MATCH_EXACT, ERROR, "Z stuck at 'Z' from init", C_SCOPE, ID_SEQUENCER_SUB);
+      edges(FORWARD, C_EDGES_PER_REV, C_TPE);
+      wait_for_logger;
+      check_value(enc_if.z, 'Z', MATCH_EXACT, ERROR, "Z still 'Z'", C_SCOPE, ID_SEQUENCER_SUB);
+      check_value(shared_th_event_log.num_z_events(C_ID), 0, ERROR, "no Z event", C_SCOPE, ID_SEQUENCER_SUB);
+      -- Every entry carries the 'Z' on Z: an invalid level for the decoder
+      check_checker(shared_th_event_log, C_ID, C_EDGES_PER_REV, "Z stuck at 'Z'", exp_invalid => C_EDGES_PER_REV);
+
+      log_step("Z stuck at '1' ignores index_inverted");
+      v_bad_config                := C_DEFAULT;
+      v_bad_config.z_stuck        := '1';
+      v_bad_config.index_inverted := true;
+      init_encoder(v_bad_config);
+      edges(FORWARD, C_EDGES_PER_REV, C_TPE);
+      wait_for_logger;
+      check_value(enc_if.z, '1', MATCH_EXACT, ERROR, "Z stuck at '1'", C_SCOPE, ID_SEQUENCER_SUB);
+      check_value(shared_th_event_log.num_z_events(C_ID), 0, ERROR, "no Z event", C_SCOPE, ID_SEQUENCER_SUB);
+
+      log_step("Bounce with A stuck at '1': no bounce on the stuck output");
+      v_bad_config         := bounce_config(BOUNCE_EVEN, C_BOUNCE_PULSES, C_BOUNCE_WINDOW);
+      v_bad_config.a_stuck := '1';
+      init_encoder(v_bad_config);
+      edges(FORWARD, 2 * C_EDGES_PER_CYCLE, C_BOUNCE_TPE);  -- 4 edges on each channel
+      wait for C_BOUNCE_WINDOW;
+      check_value(num_events(CHANNEL_A), 0, ERROR, "no event on A", C_SCOPE, ID_SEQUENCER_SUB);
+      check_value(num_events(CHANNEL_B), C_EDGES_PER_CYCLE * (1 + 2 * C_BOUNCE_PULSES), ERROR, "B edges with bounce", C_SCOPE,
+                  ID_SEQUENCER_SUB);
+
+      log_step("Invalid stuck levels");
+      init_encoder(C_DEFAULT);
+      v_bad_config         := C_DEFAULT;
+      v_bad_config.a_stuck := C_BAD_STUCK(0);
+      reject_move(v_bad_config, "a_stuck " & to_string(C_BAD_STUCK(0)));
+      v_bad_config         := C_DEFAULT;
+      v_bad_config.b_stuck := C_BAD_STUCK(1);
+      reject_move(v_bad_config, "b_stuck " & to_string(C_BAD_STUCK(1)));
+      v_bad_config         := C_DEFAULT;
+      v_bad_config.z_stuck := C_BAD_STUCK(2);
+      reject_move(v_bad_config, "z_stuck " & to_string(C_BAD_STUCK(2)));
+
+    --============================================================================================================================
+    elsif GC_TESTCASE = "bfm_only_flow_and_rotate" then
+      -- Edges with timing, index and an angle move by direct BFM calls
+      log_step("BFM-only flow: edges, index, angle move");
+      init_encoder(C_DEFAULT);
+      v_t_start := now;
+      edges(FORWARD, C_EDGES_PER_CYCLE, C_TPE);
+      check_edge_times(shared_th_event_log, C_ID, 0, v_t_start, C_EDGES_PER_CYCLE, C_TPE, "edges");
+      check_z_follows_ab(shared_th_event_log, C_ID, 0, v_config.zero_state, v_config.index_state, v_config.index_width,
+                         v_config.index_position, v_config.cycles_per_rev, v_config.index_inverted, v_activations, "edges");
+      -- 18 deg + 10 deg = 28 deg crosses the boundaries at 20.25 and 24.75 deg
+      angle(FORWARD, C_ANGLE_10, C_TPE_ANGLE);
+      check_status(C_EDGES_PER_CYCLE + 2, real(C_EDGES_PER_CYCLE) * C_DEG_PER_EDGE + C_ANGLE_10, "edges and angle move");
+      check_checker(shared_th_event_log, C_ID, C_EDGES_PER_CYCLE + 2, "BFM-only flow");
+
+      log_step("Rotate at +" & to_string(C_ROTATE_RPM) & " rpm for " & to_string(C_ROTATE_TIME, ms) & ", stop at the reached angle");
+      init_encoder(C_DEFAULT);
+      v_t_start := now;
+      rotate(real(C_ROTATE_RPM), C_ROTATE_TIME);
+      check_duration(C_ROTATE_TIME, 0 ns, "rotate");
+      v_num := C_ROTATE_TIME / ideal_move_time(0 ns, 1, C_ROTATE_RPM, C_CPR);  -- Edge angles in the rotation time
+      check_edge_times_rpm(shared_th_event_log, C_ID, 0, v_t_start, v_num, C_ROTATE_RPM, C_CPR, "rotate");
+      check_status(v_num, real(v_num) * C_DEG_PER_EDGE, "stopped at the reached angle");
+      check_at_rest("after rotate");
+      wait for C_ROTATE_TIME;
+      check_value(shared_th_event_log.count(C_ID), v_num, ERROR, "no edge after the stop", C_SCOPE, ID_SEQUENCER_SUB);
+      check_checker(shared_th_event_log, C_ID, v_num, "rotate forward");
+
+      log_step("Rotate at -" & to_string(C_ROTATE_RPM_FAST) & " rpm for " & to_string(C_ROTATE_TIME, ms));
+      v_pos := v_num;
+      shared_th_event_log.clear(C_ID);
+      v_t_start := now;
+      rotate(-real(C_ROTATE_RPM_FAST), C_ROTATE_TIME);
+      v_num := C_ROTATE_TIME / ideal_move_time(0 ns, 1, C_ROTATE_RPM_FAST, C_CPR);
+      check_edge_times_rpm(shared_th_event_log, C_ID, 0, v_t_start, v_num, C_ROTATE_RPM_FAST, C_CPR, "rotate reverse");
+      check_status(v_pos - v_num, real(v_pos - v_num) * C_DEG_PER_EDGE, "reverse");
+      check_checker(shared_th_event_log, C_ID, -v_num, "rotate reverse");
+
+      -- Edges at 0.5, 1.5 and 2.5 time_per_edge; at 2.75 edge angles the shaft is past the third boundary
+      log_step("Rotate in reverse at " & to_string(C_ROTATE_TPE, ns) & " per edge for " & to_string(C_ROTATE_TPE_TIME, ns));
+      init_encoder(C_DEFAULT);
+      v_t_start := now;
+      rotate(REVERSE, C_ROTATE_TPE, C_ROTATE_TPE_TIME);
+      check_duration(C_ROTATE_TPE_TIME, 0 ns, "rotate, time form");
+      check_edge_times(shared_th_event_log, C_ID, 0, v_t_start, 3, C_ROTATE_TPE, "rotate, time form");
+      check_status(-3, -2.75 * C_DEG_PER_EDGE, "rotate, time form");
+      check_checker(shared_th_event_log, C_ID, -3, "rotate, time form");
+
+      log_step("Profile (60, 120) rpm, " & to_string(C_ENTRY_TIME, ms) & " per entry, PROFILE_STOP: returns at its end");
+      init_encoder(C_DEFAULT);
+      v_t_start := now;
+      rotate(C_PROFILE, C_ENTRY_TIME, PROFILE_STOP, 2 * C_PROFILE_END);
+      check_duration(C_PROFILE_END, 0 ns, "returns at the end of the profile");
+      for k in C_PROFILE_EDGES'range loop
+        check_event_time(k, v_t_start + C_PROFILE_EDGES(k), C_RESOLUTION, "profile edge " & to_string(k + 1));
+      end loop;
+      check_value(shared_th_event_log.count(C_ID), C_PROFILE_EDGES'length, ERROR, "edge count", C_SCOPE, ID_SEQUENCER_SUB);
+      -- At rest at 27 deg: 2 edge angles at 60 rpm, then 4 at 120 rpm
+      check_status(C_PROFILE_EDGES'length, real(C_PROFILE_EDGES'length) * C_DEG_PER_EDGE, "PROFILE_STOP");
+      check_at_rest("after PROFILE_STOP");
+
+      -- Two more edges at the last speed; at 60 ms the shaft is at 7.6 edge angles
+      log_step("The same profile with PROFILE_HOLD for 60 ms");
+      init_encoder(C_DEFAULT);
+      v_t_start := now;
+      rotate(C_PROFILE, C_ENTRY_TIME, PROFILE_HOLD, 60 ms);
+      check_duration(60 ms, 0 ns, "PROFILE_HOLD");
+      for k in C_PROFILE_EDGES'range loop
+        check_event_time(k, v_t_start + C_PROFILE_EDGES(k), C_RESOLUTION, "profile edge " & to_string(k + 1));
+      end loop;
+      for k in C_PROFILE_HOLD_EDGES'range loop
+        check_event_time(C_PROFILE_EDGES'length + k, v_t_start + C_PROFILE_HOLD_EDGES(k), C_RESOLUTION, "hold edge " & to_string(k + 1));
+      end loop;
+      check_value(shared_th_event_log.count(C_ID), C_PROFILE_EDGES'length + C_PROFILE_HOLD_EDGES'length, ERROR, "edge count",
+                  C_SCOPE, ID_SEQUENCER_SUB);
+      check_status(8, 7.6 * C_DEG_PER_EDGE, "PROFILE_HOLD");
+
+      -- The second pass starts at 50 ms; at 80 ms the shaft is at 8.8 edge angles
+      log_step("The same profile with PROFILE_REPEAT for 80 ms");
+      init_encoder(C_DEFAULT);
+      v_t_start := now;
+      rotate(C_PROFILE, C_ENTRY_TIME, PROFILE_REPEAT, 80 ms);
+      check_duration(80 ms, 0 ns, "PROFILE_REPEAT");
+      for k in C_PROFILE_EDGES'range loop
+        check_event_time(k, v_t_start + C_PROFILE_EDGES(k), C_RESOLUTION, "profile edge " & to_string(k + 1));
+      end loop;
+      for k in C_PROFILE_REPEAT_EDGES'range loop
+        check_event_time(C_PROFILE_EDGES'length + k, v_t_start + C_PROFILE_REPEAT_EDGES(k), C_RESOLUTION,
+                         "repeat edge " & to_string(k + 1));
+      end loop;
+      check_value(shared_th_event_log.count(C_ID), C_PROFILE_EDGES'length + C_PROFILE_REPEAT_EDGES'length, ERROR, "edge count",
+                  C_SCOPE, ID_SEQUENCER_SUB);
+      check_status(9, 8.8 * C_DEG_PER_EDGE, "PROFILE_REPEAT");
+
+      -- No edge in the first entry; at rest at 2 edge angles
+      log_step("Profile (0, 60) rpm, PROFILE_STOP");
+      init_encoder(C_DEFAULT);
+      v_t_start := now;
+      rotate(C_PROFILE_ZERO, C_ENTRY_TIME, PROFILE_STOP, 2 * C_PROFILE_END);
+      check_duration(C_PROFILE_END, 0 ns, "returns at the end of the profile");
+      for k in C_PROFILE_ZERO_EDGES'range loop
+        check_event_time(k, v_t_start + C_PROFILE_ZERO_EDGES(k), C_RESOLUTION, "edge " & to_string(k + 1));
+      end loop;
+      check_value(shared_th_event_log.count(C_ID), C_PROFILE_ZERO_EDGES'length, ERROR, "edge count", C_SCOPE, ID_SEQUENCER_SUB);
+      check_status(C_PROFILE_ZERO_EDGES'length, real(C_PROFILE_ZERO_EDGES'length) * C_DEG_PER_EDGE, "profile (0, 60)");
+
+      log_step("A profile of the maximum length is accepted");
+      init_encoder(C_DEFAULT);
+      v_alerts := get_alert_counter(TB_ERROR);
+      rotate((0 to C_ROTARY_ENCODER_VVC_CMD_PROFILE_MAX_LENGTH - 1 => real(C_ROTATE_RPM)), C_ENTRY_TIME, PROFILE_HOLD, C_ENTRY_TIME);
+      check_value(get_alert_counter(TB_ERROR) - v_alerts, 0, ERROR, "no TB_ERROR", C_SCOPE, ID_SEQUENCER_SUB);
+      check_status(2, 2.0 * C_DEG_PER_EDGE, "maximum profile, one entry at 60 rpm");
+
+      log_step("Rotate at 0 rpm: no event");
+      init_encoder(C_DEFAULT);
+      v_t_start := now;
+      rotate(0.0, C_QUIET_TIME);
+      check_duration(C_QUIET_TIME, 0 ns, "0 rpm");
+      check_value(shared_th_event_log.count(C_ID), 0, ERROR, "no event", C_SCOPE, ID_SEQUENCER_SUB);
+      check_status(0, 0.0, "0 rpm");
+
+      log_step("Invalid rotate parameters");
+      init_encoder(C_DEFAULT);
+      begin_reject("rpm not finite");
+      rotate(real'high, C_ROTATE_TIME);
+      end_reject("rpm not finite");
+      begin_reject("time_per_edge " & to_string(C_BAD_TPES(0), ns));
+      rotate(FORWARD, C_BAD_TPES(0), C_ROTATE_TIME);
+      end_reject("time_per_edge " & to_string(C_BAD_TPES(0), ns));
+      begin_reject("empty profile");
+      rotate(C_EMPTY_PROFILE, C_ENTRY_TIME, PROFILE_HOLD, C_ROTATE_TIME);
+      end_reject("empty profile");
+      begin_reject("profile longer than the maximum");
+      rotate((0 to C_ROTARY_ENCODER_VVC_CMD_PROFILE_MAX_LENGTH => real(C_ROTATE_RPM)), C_ENTRY_TIME, PROFILE_HOLD, C_ROTATE_TIME);
+      end_reject("profile longer than the maximum");
+      begin_reject("time_per_entry " & to_string(C_BAD_TPES(0), ns));
+      rotate(C_PROFILE, C_BAD_TPES(0), PROFILE_HOLD, C_ROTATE_TIME);
+      end_reject("time_per_entry " & to_string(C_BAD_TPES(0), ns));
+      begin_reject("profile entry not finite");
+      rotate(real_vector'(real(C_ROTATE_RPM), real'high), C_ENTRY_TIME, PROFILE_HOLD, C_ROTATE_TIME);
+      end_reject("profile entry not finite");
+      for i in C_BAD_TPES'range loop
+        begin_reject("duration " & to_string(C_BAD_TPES(i), ns));
+        rotate(real(C_ROTATE_RPM), C_BAD_TPES(i));
+        end_reject("duration " & to_string(C_BAD_TPES(i), ns));
+      end loop;
+      check_status(0, 0.0, "after the rejected calls");
+
+    --============================================================================================================================
+    elsif GC_TESTCASE = "linear_ramp" then
+      -- Hand values: 0 to 3000 rpm in 4 entries, -60 to 60 rpm in 3, a single entry is the start value
+      log_step("Linear ramps");
+      check_ramp(rotary_encoder_linear_ramp(0.0, 3000.0, 4), (0.0, 1000.0, 2000.0, 3000.0), "0 to 3000 rpm, 4 entries");
+      check_ramp(rotary_encoder_linear_ramp(-60.0, 60.0, 3), (-60.0, 0.0, 60.0), "-60 to 60 rpm, 3 entries");
+      check_ramp(rotary_encoder_linear_ramp(60.0, 120.0, 1), (0 => 60.0), "one entry");
+
+      -- The 3 invalid calls below: 0 and -1 entries, a start speed that is not finite
+      log_step("Invalid arguments: one TB_ERROR each, an empty profile");
+      increment_expected_alerts_and_stop_limit(TB_ERROR, 3, "invalid linear ramps");
+      v_alerts := get_alert_counter(TB_ERROR);
+      check_value(rotary_encoder_linear_ramp(0.0, 60.0, 0)'length, 0, ERROR, "0 entries", C_SCOPE, ID_SEQUENCER_SUB);
+      check_value(rotary_encoder_linear_ramp(0.0, 60.0, -1)'length, 0, ERROR, "-1 entries", C_SCOPE, ID_SEQUENCER_SUB);
+      check_value(rotary_encoder_linear_ramp(real'high, 60.0, 2)'length, 0, ERROR, "start not finite", C_SCOPE, ID_SEQUENCER_SUB);
+      check_value(get_alert_counter(TB_ERROR) - v_alerts, 3, ERROR, "one TB_ERROR per invalid call", C_SCOPE, ID_SEQUENCER_SUB);
+
+    --============================================================================================================================
+    elsif GC_TESTCASE = "linear_ramp_rotation" then
+      -- A linear ramp as the profile of a rotation: entry j (from the ramp start) turns at j rpm, so its edges lie at the
+      -- rpm-form times counted from the entry start
+      log_step("Linear ramp 0 to " & to_string(C_RAMP_RPM_END) & " rpm, " & to_string(C_RAMP_RPM_END + 1) & " entries of " &
+               to_string(C_RAMP_ENTRY_TIME, sec) & ", PROFILE_STOP");
+      init_encoder(C_DEFAULT);
+      v_t_start := now;
+      rotate(rotary_encoder_linear_ramp(0.0, real(C_RAMP_RPM_END), C_RAMP_RPM_END + 1), C_RAMP_ENTRY_TIME, PROFILE_STOP,
+             2 * (C_RAMP_RPM_END + 1) * C_RAMP_ENTRY_TIME);
+      check_duration((C_RAMP_RPM_END + 1) * C_RAMP_ENTRY_TIME, 0 ns, "returns at the end of the ramp");
+      -- Entry 0 at 0 rpm has no edge; v_num counts the edges of the entries before entry j
+      v_num := 0;
+      for j in 1 to C_RAMP_RPM_END loop
+        v_pos := j * C_EDGES_PER_REV * (C_RAMP_ENTRY_TIME / 1 sec) / C_SEC_PER_MIN;  -- Edge angles in entry j
+        check_edge_times_rpm(shared_th_event_log, C_ID, v_num, v_t_start + j * C_RAMP_ENTRY_TIME, v_pos, j, C_CPR,
+                             "ramp entry at " & to_string(j) & " rpm");
+        v_num := v_num + v_pos;
+      end loop;
+      check_value(shared_th_event_log.count(C_ID), v_num, ERROR, "edge count of the ramp", C_SCOPE, ID_SEQUENCER_SUB);
+      check_status(v_num, real(v_num) * C_DEG_PER_EDGE, "at rest after the ramp");
+      check_at_rest("after the ramp");
+      check_checker(shared_th_event_log, C_ID, v_num, "linear ramp");
 
     else
       alert(TB_ERROR, "Unsupported test case: " & GC_TESTCASE, C_SCOPE);
