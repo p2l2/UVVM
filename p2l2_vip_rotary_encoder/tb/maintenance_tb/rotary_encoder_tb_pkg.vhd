@@ -126,6 +126,17 @@ package rotary_encoder_tb_pkg is
     constant degrees : in natural;
     constant rpm     : in positive) return time;
 
+  -- Edges first_idx .. first_idx + num_edges - 1 of the log are A/B edges at expected(k) +- tolerance, k = 1 to num_edges
+  procedure check_edge_times_list(
+    variable event_log : inout t_event_log;
+    constant id        : in positive;
+    constant first_idx : in natural;
+    constant num_edges : in positive;
+    constant expected  : in time_vector; -- (1 to num_edges)
+    constant tolerance : in time;
+    constant msg       : in string;
+    constant scope     : in string := C_TB_SCOPE_DEFAULT);
+
   -- Edges first_idx .. first_idx + num_edges - 1 of the log are A/B edges at exactly t_start + (k - 1/2) * time_per_edge
   procedure check_edge_times(
     variable event_log     : inout t_event_log;
@@ -476,8 +487,7 @@ package body rotary_encoder_tb_pkg is
     return ideal_time(0 ns, degrees * C_SEC_PER_MIN, rpm * C_DEG_PER_REV);
   end function;
 
-  -- Shared part of check_edge_times and check_edge_times_rpm: edge k at expected(k) within tolerance
-  procedure check_edges_against(
+  procedure check_edge_times_list(
     variable event_log : inout t_event_log;
     constant id        : in positive;
     constant first_idx : in natural;
@@ -485,7 +495,7 @@ package body rotary_encoder_tb_pkg is
     constant expected  : in time_vector; -- (1 to num_edges)
     constant tolerance : in time;
     constant msg       : in string;
-    constant scope     : in string) is
+    constant scope     : in string := C_TB_SCOPE_DEFAULT) is
     variable v_event   : t_enc_event;
     variable v_dev     : time;
     variable v_max_dev : time    := 0 ns;
@@ -529,7 +539,7 @@ package body rotary_encoder_tb_pkg is
     for k in 1 to num_edges loop
       v_expected(k) := t_start + (2 * k - 1) * time_per_edge / 2;
     end loop;
-    check_edges_against(event_log, id, first_idx, num_edges, v_expected, 0 ns, msg, scope);
+    check_edge_times_list(event_log, id, first_idx, num_edges, v_expected, 0 ns, msg, scope);
   end procedure;
 
   procedure check_edge_times_rpm(
@@ -547,7 +557,7 @@ package body rotary_encoder_tb_pkg is
     for k in 1 to num_edges loop
       v_expected(k) := ideal_edge_time(t_start, k, rpm, cycles_per_rev);
     end loop;
-    check_edges_against(event_log, id, first_idx, num_edges, v_expected, C_RESOLUTION, msg, scope);
+    check_edge_times_list(event_log, id, first_idx, num_edges, v_expected, C_RESOLUTION, msg, scope);
   end procedure;
 
   procedure check_checker(

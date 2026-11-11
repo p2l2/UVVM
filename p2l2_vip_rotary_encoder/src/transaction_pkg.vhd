@@ -49,7 +49,10 @@ package transaction_pkg is
     CENTER_STATE,
     SET_ANGLE,
     JUMP_EDGES,
-    GET_STATUS
+    GET_STATUS,
+    START_ROTATION,
+    SET_SPEED,
+    STOP_ROTATION
   );
 
   -- Constants for the maximum sizes to use in this VVC. Can be modified in adaptations_pkg.
@@ -78,7 +81,7 @@ package transaction_pkg is
   -- Base transaction
   type t_base_transaction is record
     operation           : t_operation;
-    direction           : t_rotary_encoder_direction;
+    direction           : t_rotary_encoder_direction;   -- Moves, jump; rotation with time_per_edge
     num_edges           : natural;                      -- Moves, jump
     target_state        : std_logic_vector(1 downto 0); -- Move to state, pin levels
     occurrence          : natural;                      -- Move to state
@@ -88,7 +91,8 @@ package transaction_pkg is
     profile_length      : natural;                      -- Speed profile entries; 0 for a constant speed
     time_per_entry      : time;
     profile_end         : t_rotary_encoder_profile_end;
-    edges               : natural;                      -- Edges emitted by a move; valid at COMPLETED or FAILED
+    edges               : natural;                      -- Edges emitted by a move (0 for other commands); valid at
+                                                        -- COMPLETED or FAILED
     status              : t_rotary_encoder_status;      -- Encoder state at the end of the command (for a status read: its
                                                         -- result); valid at COMPLETED or FAILED
     vvc_meta            : t_vvc_meta;

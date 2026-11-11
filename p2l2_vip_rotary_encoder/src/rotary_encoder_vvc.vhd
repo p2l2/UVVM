@@ -66,7 +66,8 @@ architecture behave of rotary_encoder_vvc is
 
   -- Executor -> p_motion. p_motion is the only driver of the port and owns the encoder state; the executor sends one
   -- request at a time (a REQ_HALT may follow a REQ_MOTION that is still running) and waits for its response.
-  type t_motion_req_kind is (REQ_MOTION, REQ_HALT, REQ_STATUS, REQ_CENTER_STATE, REQ_SET_ANGLE, REQ_JUMP_EDGES);
+  -- REQ_MOTION: a move, a rotation start or a speed change (cmd.operation). REQ_STOP: stop the rotation.
+  type t_motion_req_kind is (REQ_MOTION, REQ_STOP, REQ_HALT, REQ_STATUS, REQ_CENTER_STATE, REQ_SET_ANGLE, REQ_JUMP_EDGES);
   type t_motion_req is record
     idx          : natural;          -- Incremented with every request
     kind         : t_motion_req_kind;
@@ -75,11 +76,11 @@ architecture behave of rotary_encoder_vvc is
   end record t_motion_req;
   constant C_MOTION_REQ_DEFAULT : t_motion_req := (0, REQ_STATUS, C_VVC_CMD_DEFAULT, C_VVC_MSG_ID_PANEL_DEFAULT);
 
-  -- p_motion -> executor: request idx is complete, i.e. a move is at rest, a zero-time operation is done, or a
-  -- request was rejected
+  -- p_motion -> executor: request idx is complete, i.e. a move is at rest, a rotation start or speed change has emitted
+  -- its first edge, a zero-time operation is done, or a request was rejected
   type t_motion_rsp is record
     idx      : natural;
-    accepted : boolean;                 -- REQ_MOTION: false after a TB_ERROR, nothing moved
+    accepted : boolean;                 -- false after a TB_ERROR: nothing changed
     edges    : natural;                 -- Edges of the current or last move
     status   : t_rotary_encoder_status; -- At the response time
   end record t_motion_rsp;
@@ -87,7 +88,9 @@ architecture behave of rotary_encoder_vvc is
 
   signal motion_req       : t_motion_req := C_MOTION_REQ_DEFAULT;
   signal motion_rsp       : t_motion_rsp := C_MOTION_RSP_DEFAULT;
+  signal halt_req         : natural      := 0; -- Interpreter -> p_motion: terminate_current_command during a rotation
   signal motion_interrupt : natural      := 0; -- Interrupts a running motion in p_motion: an event for every request
+  signal rotation_active  : boolean      := false; -- From an accepted rotation start until its stop or halt
 
   -- Instantiation of the element dedicated executor
   shared variable command_queue : work.td_cmd_queue_pkg.t_generic_queue;
@@ -174,6 +177,12 @@ begin
             work.td_vvc_entity_support_pkg.interpreter_flush_command_queue(v_local_vvc_cmd, command_queue, vvc_config, vvc_status, C_VVC_LABELS);
 
           when TERMINATE_CURRENT_COMMAND =>
+            -- A rotation runs on after its start command has completed, so the framework's terminate (which only acts on
+            -- a busy executor) cannot reach it: it is halted here, whatever the executor is doing
+            if rotation_active then
+              log(ID_IMMEDIATE_CMD, "Halting the rotation", C_SCOPE, v_msg_id_panel);
+              halt_req <= halt_req + 1;
+            end if;
             work.td_vvc_entity_support_pkg.interpreter_terminate_current_command(v_local_vvc_cmd, vvc_config, C_VVC_LABELS, terminate_current_cmd, executor_is_busy);
 
           when FETCH_RESULT =>
@@ -259,6 +268,12 @@ begin
       set_global_vvc_transaction_info(vvc_transaction_info_trigger, vvc_transaction_info, v_cmd, v_rsp.status, edges, status, C_SCOPE);
     end procedure;
 
+    -- ", position P, angle A deg." of the status in v_rsp
+    impure function position_string return string is
+    begin
+      return ", position " & to_string(v_rsp.status.position) & ", angle " & to_string(v_rsp.status.angle, C_ANGLE_DIGITS) & " deg.";
+    end function;
+
     -- Runs a move in p_motion and logs its end
     procedure execute_move is
     begin
@@ -267,16 +282,33 @@ begin
       if v_rsp.accepted then
         if v_terminated then
           log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & "=> Terminated after " & to_string(v_rsp.edges) &
-              " edges, position " & to_string(v_rsp.status.position) & ", angle " &
-              to_string(v_rsp.status.angle, C_ANGLE_DIGITS) & " deg." & format_msg(v_cmd), C_SCOPE, v_msg_id_panel);
+              " edges" & position_string & format_msg(v_cmd), C_SCOPE, v_msg_id_panel);
         else
-          log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & "=> " & to_string(v_rsp.edges) & " edges, position " &
-              to_string(v_rsp.status.position) & ", angle " & to_string(v_rsp.status.angle, C_ANGLE_DIGITS) & " deg." &
-              format_msg(v_cmd), C_SCOPE, v_msg_id_panel);
+          log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & "=> " & to_string(v_rsp.edges) & " edges" &
+              position_string & format_msg(v_cmd), C_SCOPE, v_msg_id_panel);
         end if;
         complete_transaction_info(v_rsp.edges, COMPLETED);
       else
         complete_transaction_info(0, FAILED); -- Rejected with a TB_ERROR: nothing moved
+      end if;
+    end procedure;
+
+    -- Starts a rotation or changes its speed in p_motion; completes at the first edge at the new speed
+    procedure execute_rotation is
+    begin
+      set_transaction_info(IN_PROGRESS);
+      request(REQ_MOTION);
+      if v_rsp.accepted then
+        if v_terminated then
+          log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & "=> Terminated, the rotation is halted" &
+              position_string & format_msg(v_cmd), C_SCOPE, v_msg_id_panel);
+        else
+          log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & "=> Took effect" & position_string & format_msg(v_cmd),
+              C_SCOPE, v_msg_id_panel);
+        end if;
+        complete_transaction_info(0, COMPLETED);
+      else
+        complete_transaction_info(0, FAILED); -- Rejected with a TB_ERROR: the rotation state is unchanged
       end if;
     end procedure;
 
@@ -287,7 +319,11 @@ begin
     begin
       set_transaction_info(IN_PROGRESS);
       request(kind);
-      complete_transaction_info(0, COMPLETED);
+      if v_rsp.accepted then
+        complete_transaction_info(0, COMPLETED);
+      else
+        complete_transaction_info(0, FAILED); -- Rejected with a TB_ERROR during a rotation
+      end if;
     end procedure;
 
   begin
@@ -357,6 +393,18 @@ begin
         when JUMP_EDGES =>
           execute_operation(REQ_JUMP_EDGES);
 
+        when START_ROTATION | SET_SPEED =>
+          execute_rotation;
+
+        when STOP_ROTATION =>
+          set_transaction_info(IN_PROGRESS);
+          request(REQ_STOP);
+          if v_rsp.accepted then
+            log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & "=> Stopped" & position_string & format_msg(v_cmd),
+                C_SCOPE, v_msg_id_panel);
+          end if;
+          complete_transaction_info(0, COMPLETED);
+
         when GET_STATUS =>
           set_transaction_info(IN_PROGRESS);
           request(REQ_STATUS);
@@ -412,24 +460,28 @@ begin
   --==========================================================================================
   -- Motion process
   -- - The only driver of rotary_encoder_vvc_if and the owner of the encoder state. Initializes the encoder from the
-  --   generic at time 0 (vvc_config may not be set up yet then) and executes the requests of the executor.
-  -- - A move runs edge by edge with rotary_encoder_run_motion(), which returns at every edge and at every new
-  --   request, so a halt takes effect at once. A move keeps the configuration of its start; a configuration change
-  --   takes effect at the next command.
+  --   generic at time 0 (vvc_config may not be set up yet then) and executes the requests of the executor and the halt
+  --   requests of the interpreter.
+  -- - A motion runs edge by edge with rotary_encoder_run_motion(), which returns at every edge and at every new
+  --   request, so a speed change, stop or halt takes effect at once. A move keeps the configuration of its start. A
+  --   rotation takes the configuration again after every edge, so a change of the signal configuration reaches the
+  --   rotation at the edge after the next one; its geometry stays as at the rotation start.
   -- - Pending requests are detected by their index: a delta wait inside rotary_encoder_run_motion() can absorb the event
   --   of motion_interrupt.
   --==========================================================================================
-  motion_interrupt <= motion_req.idx;
+  motion_interrupt <= motion_req.idx + halt_req;
 
   p_motion : process is
     variable v_state          : t_rotary_encoder_state;
     variable v_req            : t_motion_req;
     variable v_motion_req     : t_motion_req;           -- The request of the active motion
     variable v_handled_idx    : natural := 0;
+    variable v_handled_halt   : natural := 0;
     variable v_motion_active  : boolean := false;
+    variable v_pending        : boolean := false;       -- The response to v_motion_req is still due
     variable v_accepted       : boolean;
     variable v_start_position : integer := 0;           -- Position at the start of the last move
-    variable v_motion_config  : t_rotary_encoder_bfm_config; -- Configuration of the active motion, taken at its start
+    variable v_motion_config  : t_rotary_encoder_bfm_config; -- Configuration of the active motion's next edge
     variable v_event          : t_rotary_encoder_motion_event;
 
     -- Completes request idx
@@ -442,12 +494,89 @@ begin
       motion_rsp <= (idx, accepted, abs(C_STATUS.position - v_start_position), C_STATUS);
     end procedure;
 
+    impure function is_rotating return boolean is
+    begin
+      return rotary_encoder_get_status(v_state).is_rotating;
+    end function;
+
+    -- Rejects the request in v_req with a TB_ERROR
+    procedure reject_request(
+      constant reason : in string
+    ) is
+    begin
+      alert(TB_ERROR, to_string(v_req.cmd.proc_call) & "=> Failed. " & reason & format_msg(v_req.cmd), C_SCOPE);
+      respond(v_req.idx, false);
+    end procedure;
+
+    -- Ends the active motion at the current angle
+    procedure halt is
+    begin
+      rotary_encoder_halt_motion(v_state);
+      v_motion_active := false;
+      v_pending       := false;
+      rotation_active <= false;
+    end procedure;
+
+    -- Move, rotation start or speed change
+    procedure handle_motion is
+      constant C_IS_ROTATION : boolean                     := v_req.cmd.operation = START_ROTATION or v_req.cmd.operation = SET_SPEED;
+      constant C_CONFIG      : t_rotary_encoder_bfm_config := vvc_config.bfm_config;
+    begin
+      if v_req.cmd.operation = SET_SPEED and not is_rotating then
+        reject_request("No rotation is active.");
+        return;
+      elsif v_req.cmd.operation /= SET_SPEED and is_rotating then
+        reject_request("Not allowed while a rotation is active.");
+        return;
+      elsif v_req.cmd.has_profile and v_req.cmd.motion.profile_length = 0 then
+        reject_request("The profile must have 1 to " & to_string(C_VVC_CMD_PROFILE_MAX_LENGTH) & " entries.");
+        return;
+      end if;
+      if not C_IS_ROTATION then
+        v_start_position := rotary_encoder_get_status(v_state).position;
+      end if;
+      rotary_encoder_set_motion(v_req.cmd.motion, v_state, v_accepted, format_msg(v_req.cmd), C_SCOPE, v_req.msg_id_panel,
+                                C_CONFIG);
+      if not v_accepted then
+        respond(v_req.idx, false);   -- A running rotation continues unchanged
+        return;
+      end if;
+      v_motion_config := C_CONFIG;
+      v_motion_req    := v_req;
+      v_motion_active := true;
+      v_pending       := true;
+      if C_IS_ROTATION then
+        rotation_active <= true;
+        -- At rest at a constant 0.0 rpm: no edge will follow, the change is complete
+        if not v_req.cmd.has_profile and rotary_encoder_get_status(v_state).rpm = 0.0 then
+          v_pending := false;
+          respond(v_req.idx, true);
+        end if;
+      end if;
+    end procedure;
+
+    -- Logs the end of a rotation that stopped by itself at the end of its profile
+    procedure log_profile_end is
+    begin
+      log(v_motion_config.id_for_bfm, "Rotation stopped at the end of its profile, position " &
+          to_string(rotary_encoder_get_status(v_state).position) & "." & format_msg(v_motion_req.cmd), C_SCOPE,
+          v_motion_req.msg_id_panel);
+    end procedure;
+
   begin
     rotary_encoder_init(v_state, "", rotary_encoder_vvc_if, C_SCOPE, vvc_config.msg_id_panel, GC_ROTARY_ENCODER_BFM_CONFIG);
 
     loop
-      if motion_req.idx = v_handled_idx and not v_motion_active then
+      if motion_req.idx = v_handled_idx and halt_req = v_handled_halt and not v_motion_active then
         wait on motion_interrupt;       -- Idle: wait for the next request
+      end if;
+
+      -- terminate_current_command during a rotation: halt it at once
+      if halt_req /= v_handled_halt then
+        v_handled_halt := halt_req;
+        if is_rotating then
+          halt;
+        end if;
       end if;
 
       if motion_req.idx /= v_handled_idx then
@@ -455,50 +584,78 @@ begin
         v_handled_idx := v_req.idx;
         case v_req.kind is
           when REQ_MOTION =>
-            v_start_position := rotary_encoder_get_status(v_state).position;
-            v_motion_config  := vvc_config.bfm_config;
-            rotary_encoder_set_motion(v_req.cmd.motion, v_state, v_accepted, format_msg(v_req.cmd), C_SCOPE, v_req.msg_id_panel,
-                                      v_motion_config);
-            if v_accepted then
-              v_motion_req    := v_req;
-              v_motion_active := true;
+            handle_motion;
+
+          when REQ_STOP =>
+            if is_rotating then
+              halt;
+              respond(v_req.idx, true);
             else
+              alert(vvc_config.stop_when_idle_severity, to_string(v_req.cmd.proc_call) & "=> No rotation is active, nothing to stop." &
+                    format_msg(v_req.cmd), C_SCOPE);
               respond(v_req.idx, false);
             end if;
 
           when REQ_HALT =>
-            rotary_encoder_halt_motion(v_state);
-            v_motion_active := false;
+            if v_motion_active then
+              halt;
+            end if;
             respond(v_req.idx, true);
 
           when REQ_STATUS =>
             respond(v_req.idx, true);
 
-          when REQ_CENTER_STATE =>
-            rotary_encoder_center_state(v_state, format_msg(v_req.cmd), C_SCOPE, v_req.msg_id_panel, vvc_config.bfm_config);
-            respond(v_req.idx, true);
-
-          when REQ_SET_ANGLE =>
-            rotary_encoder_set_angle(v_req.cmd.motion.angle, v_state, format_msg(v_req.cmd), rotary_encoder_vvc_if, C_SCOPE,
-                                     v_req.msg_id_panel, vvc_config.bfm_config);
-            respond(v_req.idx, true);
-
-          when REQ_JUMP_EDGES =>
-            rotary_encoder_jump_edges(v_req.cmd.motion.direction, v_req.cmd.motion.num, v_state, format_msg(v_req.cmd),
-                                      rotary_encoder_vvc_if, C_SCOPE, v_req.msg_id_panel, vvc_config.bfm_config);
-            respond(v_req.idx, true);
+          when REQ_CENTER_STATE | REQ_SET_ANGLE | REQ_JUMP_EDGES =>
+            if is_rotating then
+              reject_request("Not allowed while a rotation is active.");
+            else
+              case v_req.kind is
+                when REQ_CENTER_STATE =>
+                  rotary_encoder_center_state(v_state, format_msg(v_req.cmd), C_SCOPE, v_req.msg_id_panel, vvc_config.bfm_config);
+                when REQ_SET_ANGLE =>
+                  rotary_encoder_set_angle(v_req.cmd.motion.angle, v_state, format_msg(v_req.cmd), rotary_encoder_vvc_if, C_SCOPE,
+                                           v_req.msg_id_panel, vvc_config.bfm_config);
+                when others =>
+                  rotary_encoder_jump_edges(v_req.cmd.motion.direction, v_req.cmd.motion.num, v_state, format_msg(v_req.cmd),
+                                            rotary_encoder_vvc_if, C_SCOPE, v_req.msg_id_panel, vvc_config.bfm_config);
+              end case;
+              respond(v_req.idx, true);
+            end if;
 
         end case;
       end if;
 
       if v_motion_active then
-        -- Until the next edge, the end of the move or a new request
+        -- Until the next edge, the end of a profile pass, the end of the motion or a new request
         rotary_encoder_run_motion(v_state, v_event, format_msg(v_motion_req.cmd), rotary_encoder_vvc_if, motion_interrupt, C_SCOPE,
                                   v_motion_req.msg_id_panel, v_motion_config);
-        if v_event = MOTION_DONE then
-          v_motion_active := false;
-          respond(v_motion_req.idx, true);
-        end if;
+        case v_event is
+          when MOTION_EDGE =>
+            if is_rotating then
+              if v_pending then         -- The first edge of a rotation start or speed change
+                v_pending := false;
+                respond(v_motion_req.idx, true);
+              end if;
+              v_motion_config := vvc_config.bfm_config;
+            end if;
+          when MOTION_PROFILE_PASS =>
+            if v_pending then           -- The first pass of a profile without an edge
+              v_pending := false;
+              respond(v_motion_req.idx, true);
+            end if;
+          when MOTION_DONE =>           -- A move at its end, or a profile that ends with PROFILE_STOP
+            v_motion_active := false;
+            if v_motion_req.cmd.operation = START_ROTATION or v_motion_req.cmd.operation = SET_SPEED then
+              rotation_active <= false;
+              log_profile_end;
+            end if;
+            if v_pending then
+              v_pending := false;
+              respond(v_motion_req.idx, true);
+            end if;
+          when MOTION_INTERRUPTED =>    -- A new request, handled in the next pass; the motion is unchanged
+            null;
+        end case;
       end if;
     end loop;
   end process p_motion;

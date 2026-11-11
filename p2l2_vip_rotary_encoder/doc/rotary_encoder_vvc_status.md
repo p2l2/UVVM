@@ -1,9 +1,9 @@
 # Rotary Encoder VVC – Status
 
 ## 1. Current state
-- **Phase:** **Phase 5 – Implementation and verification**, Stage 5.3 – Increments. Increments 1–3 approved and committed by the user (Inc 1 `8b333d5d`, Inc 2 `a482f55a`/`27e50a52`, design migration `b0a3d588`, Inc 3 `3e4a08cf`).
-- **Increment 4 – VVC commands:** approved 2026-11-11 together with spec rev 0.13 (glitch removed, D-100) and design rev 0.5 (transaction info with the command's effect, D-98; D-95 to D-97, D-99). NVC 36/36 PASS. Commit by the user pending.
-- **Next step:** Stage 5.3 – Increment 5: VVC rotation — start/speed change/stop, profiles, rejects during a rotation, terminate/flush during a rotation (`halt_req` in the interpreter, D-95), per-edge configuration incl. invalid values (`p_motion` passes the current config for rotations), `stop_when_idle_severity` (SK-8); VVC test cases of Inc 5 (design §7.4); NVC regression.
+- **Phase:** **Phase 5 – Implementation and verification**, Stage 5.3 – Increments. Increments 1–4 approved and committed by the user (Inc 4 `842f9876`).
+- **Increment 5 – VVC rotation:** implemented 2026-11-11, NVC 50/50 PASS (no minor alerts). User decisions D-101 (config change takes effect from edge k+2, no API change), D-102 (terminate always halts a rotation), D-103 (FAILED for every VVC rejection); one-shot decisions D-104 to D-106 for review. Design rev 0.6 (REQ-107, REQ-108 reworded), report rev 0.11 §7, findings F-029 to F-031. **Boundary pending:** user review of design rev 0.6 and Increment 5, commit by the user (uncommitted).
+- **Next step:** Increment 5 boundary (approval, user commit), then Stage 5.4 – Integration and verification report: shared files S-2 to S-6, regression on GHDL/NVC/Questa, VSG (F-022), report.
 - **Last updated:** 2026-11-11
 
 ## 2. Workspace
@@ -42,9 +42,9 @@
 | Artifact | Path | Rev | Status |
 |---|---|---|---|
 | Specification | `doc/rotary_encoder_spec.md` | 0.13 | Approved 2026-11-11 (glitch removed from A-12) |
-| Design document | `doc/rotary_encoder_vvc_design.md` | 0.5 | Rev 0.4 approved 2026-11-11. Rev 0.5 (Inc 4: D-95…D-99; glitch removed, D-100; 30 BFM / 20 VVC = 50 test cases) approved 2026-11-11. 71 features, decision log D-1…D-100 |
-| Implementation report | `doc/rotary_encoder_vvc_implementation_report.md` | 0.10 | Stages 5.1, 5.2, Inc 1 (§3), Inc 2 (§4), Inc 3 (§5), Inc 4 (§6) |
-| Findings log | `doc/rotary_encoder_vvc_findings.md` | – | 28 entries |
+| Design document | `doc/rotary_encoder_vvc_design.md` | 0.6 | Rev 0.4 approved 2026-11-11. Rev 0.5 (Inc 4: D-95…D-99; glitch removed, D-100; 30 BFM / 20 VVC = 50 test cases) approved 2026-11-11. 71 features, decision log D-1…D-100 |
+| Implementation report | `doc/rotary_encoder_vvc_implementation_report.md` | 0.11 | Stages 5.1, 5.2, Inc 1–5 (§3–§7) |
+| Findings log | `doc/rotary_encoder_vvc_findings.md` | – | 31 entries |
 | Documentation | – | – | not started |
 | Audit | – | – | not started |
 
@@ -62,10 +62,11 @@
 | Stage 5.3 – Increment 1: BFM core | 2026-11-09 | approved, `8b333d5d` |
 | Stage 5.3 – Increment 2: BFM signal options | 2026-11-10 | approved, `a482f55a`, `27e50a52` |
 | Stage 5.3 – Increment 3: BFM faults, timed rotation, ramp | 2026-11-11 | approved (incl. D-89 to D-94), `3e4a08cf` |
-| Stage 5.3 – Increment 4: VVC commands | 2026-11-11 | approved (with spec rev 0.13, design rev 0.5); commit by the user pending |
+| Stage 5.3 – Increment 4: VVC commands | 2026-11-11 | approved (with spec rev 0.13, design rev 0.5), `842f9876` |
+| Stage 5.3 – Increment 5: VVC rotation | – | pending (design rev 0.6, D-104…D-106 for review) |
 
 ## 7. Latest checks
-- Inc 4 (2026-11-11): NVC PASS 36 tests (30 BFM, 6 VVC) after the glitch removal, `doc/evidence/inc4/regression_nvc.log`. One earlier run crashed in HDLRegression after all tests passed (F-028, not reproduced). GHDL/Questa NOT RUN (Stage 5.4). VSG BLOCKED (F-022)
+- Inc 5 (2026-11-11): NVC PASS 50 tests (30 BFM, 20 VVC), no minor alerts, `doc/evidence/inc5/regression_nvc.log`. GHDL/Questa NOT RUN (Stage 5.4). VSG BLOCKED (F-022). Mutation checks NOT RUN (optional)
 
 ## 8. Open items
 - REQ-086 rotation part, REQ-003/083 rotation parts, REQ-085 rotation logging: Inc 5

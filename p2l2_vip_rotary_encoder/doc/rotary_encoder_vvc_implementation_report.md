@@ -2,10 +2,10 @@
 
 | Item | Value |
 |---|---|
-| Revision | 0.10 (Stage 5.3 – Increment 4: VVC commands) |
+| Revision | 0.11 (Stage 5.3 – Increment 5: VVC rotation) |
 | Date | 2026-11-11 |
 | Baseline | Branch `p2l2_vip_rotary_encoder`, base `90d56e93`; uvvm_util v2.21.4, uvvm_vvc_framework v2.12.15 |
-| Inputs | Specification rev 0.12, design rev 0.5 (Stages 5.1/5.2 and Increments 1–2 were built against the former separate requirements, architecture and testbench architecture documents, now merged into the design) |
+| Inputs | Specification rev 0.13, design rev 0.6 (Stages 5.1/5.2 and Increments 1–2 were built against the former separate requirements, architecture and testbench architecture documents, now merged into the design) |
 | Mode | One-shot (pause at Stage 5.1, Stage 5.2, each increment); development simulator NVC 1.23.0; the user commits |
 
 ## Revision history
@@ -22,6 +22,7 @@
 | 0.8 | 2026-11-11 | Increment 2 approved (`a482f55a`, `27e50a52`); Increment 3 approved by the user 2026-11-11 incl. D-89 to D-94. New Section 5 – Increment 3: BFM faults, timed rotation, ramp (edge offsets, stuck outputs, set angle, jump, glitch, rotation engine with profiles, `rotary_encoder_rotate`, `rotary_encoder_linear_ramp`); 7 BFM test cases; NVC regression 31/31. Section 4 statements about edge offsets updated |
 | 0.9 | 2026-11-11 | Increment 3: unused `last_rpm` removed; new test case `linear_ramp_rotation` (user request); NVC regression 32/32 |
 | 0.10 | 2026-11-11 | Increment 3 committed by the user (`3e4a08cf`). Glitch removed (D-100), Sections 5 and 6 updated; transaction info with the command's effect (D-98). New Section 6 – Increment 4: VVC commands (`p_motion`, executor handshake, moves, centre state, fault events, status read, terminate, transaction info, logging); 6 VVC test cases replace the Stage 5.2 placeholder; NVC regression 36/36 |
+| 0.11 | 2026-11-11 | Increment 4 committed by the user (`842f9876`). New Section 7 – Increment 5: VVC rotation (start, speed change, stop, profiles, rejects, terminate/flush, configuration after every edge; D-101 to D-106); 13 VVC test cases (11 new, rotation parts of 2); NVC regression 50/50. Section 6.3 rotation parts and 6.6 updated |
 
 ## 1. Stage 5.1 – Generate skeleton
 
@@ -423,14 +424,14 @@ Implemented and approved 2026-11-11 against design rev 0.5 and spec rev 0.13 (bo
 | REQ | Implemented | Verified (NVC) | Test |
 |---|---|---|---|
 | REQ-001, 002, 006 (VVC path) | Yes | PASS | `vvc_power_up_state`; REQ-001 also through `check_checker` in every test |
-| REQ-003, 004 (moves) | Yes | PASS; rotation part NOT RUN (Inc 5) | `hold_between_commands` |
+| REQ-003, 004 (moves) | Yes | PASS; rotation part in Section 7.3 | `hold_between_commands` |
 | REQ-078 (VVC path) | Yes | PASS | `config_change_between_moves` |
 | REQ-081 | Yes | PASS | `vvc_commands` |
 | REQ-082 | Yes | PASS | `terminate_move` |
-| REQ-083 (moves) | Yes | PASS; rotation part NOT RUN (Inc 5) | `multiple_instances` |
+| REQ-083 (moves) | Yes | PASS; rotation part in Section 7.3 | `multiple_instances` |
 | REQ-084 | Yes | PASS | `config_change_between_moves` |
-| REQ-085 (moves, fault events) | Yes | PASS (Sim); Review: log in the evidence file (6.4); rotation part Inc 5 | `vvc_commands` |
-| REQ-086 (VVC) | Yes | PASS; rotation part NOT RUN (Inc 5) | `vvc_commands`, `vvc_power_up_state` |
+| REQ-085 (moves, fault events) | Yes | PASS (Sim); Review: log in the evidence file (6.4); rotation part in Section 7.3 | `vvc_commands` |
+| REQ-086 (VVC) | Yes | PASS; rotation part in Section 7.3 | `vvc_commands`, `vvc_power_up_state` |
 | REQ-096 (VVC, execution time) | Yes | PASS | `vvc_commands` |
 
 ### 6.4 Results
@@ -456,4 +457,101 @@ By the user: **D-98** (E-4.2, option A) the transaction info carries the effect 
 
 ### 6.6 Notes for later increments
 
-- **Inc 5:** `p_motion` handles `REQ_MOTION` for rotations through the same path; to add: rejects during a rotation (REQ-105), rotation config per edge (pass the current `vvc_config.bfm_config` instead of the start configuration), the response at the first edge / profile pass, `REQ_STOP`, `rotation_active`, `halt_req` in the interpreter (D-95), `stop_when_idle_severity` in `t_vvc_config` (SK-8).
+- Done in Increment 5 (Section 7): rotations through `REQ_MOTION`, rejects in `p_motion`, configuration after every edge (D-101), responses at the first edge / profile pass, `REQ_STOP`, `rotation_active`, `halt_req` (D-95, D-102), `stop_when_idle_severity` (SK-8).
+
+## 7. Stage 5.3 – Increment 5: VVC rotation
+
+Implemented 2026-11-11 against design rev 0.6. Decisions D-101 to D-103 by the user before coding (Section 7.5); D-104 to D-106 taken in one-shot mode (internal).
+
+### 7.1 Source changes
+
+| File | Change |
+|---|---|
+| `src/transaction_pkg.vhd` | `t_operation`: `START_ROTATION`, `SET_SPEED`, `STOP_ROTATION`; field comments |
+| `src/vvc_cmd_pkg.vhd` | Command field `has_profile` (a rotation command given as a profile; an empty profile has `profile_length` 0 like a constant speed and is rejected by it) |
+| `src/vvc_methods_pkg.vhd` | `t_vvc_config.stop_when_idle_severity` (default `TB_WARNING`, SK-8). Methods `rotary_encoder_start_rotation` and `rotary_encoder_set_speed` (rpm, direction + `time_per_edge`, profile + `time_per_entry` + end behaviour each) and `rotary_encoder_stop_rotation`, as API preview 5.2. Body-only helpers `rotation_rpm`, `rotation_time`, `rotation_profile` (a profile longer than the record keeps its length, so it is rejected), `profile_string`; `send_command` takes `has_profile`. Transaction info for the three operations; `rpm`/`time_per_edge` only for a constant speed |
+| `src/rotary_encoder_vvc.vhd` | Interpreter: `TERMINATE_CURRENT_COMMAND` increments `halt_req` while `rotation_active`, then calls the framework procedure (D-102). Executor: `execute_rotation` (logs "Took effect" or "Terminated, the rotation is halted", `FAILED` when rejected), `STOP_ROTATION` (logs "Stopped"), `execute_operation` ends `FAILED` when rejected (D-103), `position_string`. `p_motion`: `REQ_STOP`, `halt_req` handling, `rotation_active`, rejections by rotation state with `reject_request` (D-105), a pending response that is given at the first edge, the end of the first profile pass, the end of the motion, or at once for a constant 0 rpm (D-104); a rotation takes the shared configuration after every edge (D-101); log at the end of a `PROFILE_STOP` profile; `motion_interrupt <= motion_req.idx + halt_req` |
+| `tb/maintenance_tb/rotary_encoder_tb_pkg.vhd` | The edge-list check (formerly private `check_edges_against`) is public as `check_edge_times_list`, for irregular edge times (speed changes, profiles) |
+| `tb/maintenance_tb/rotary_encoder_vvc_tb.vhd` | Constants `C_T`, `C_PROFILE`, `C_TIME_PER_ENTRY`, `C_PROFILE_EDGES`. Helpers `wait_until`, `await_at`, `stop`, `check_rotating`, `check_at_rest`, `begin_reject_running`/`end_reject_running`, `set_config`. 11 new test cases; rotation steps in `hold_between_commands` and `multiple_instances` (7.2) |
+
+The BFM (`rotary_encoder_bfm_pkg.vhd`) is unchanged.
+
+### 7.2 Tests (`rotary_encoder_vvc_tb`)
+
+T = 1 µs per edge (time form) unless stated; 60 rpm = 12.5 ms per edge.
+
+| TC | Content |
+|---|---|
+| `hold_between_commands` (rotation step) | Rotation at 100 ns stopped 2.25 intervals after its start, `insert_delay` of 100 intervals and an idle wait of 100: no event; the next 1-edge move emits its edge a quarter interval after its start |
+| `multiple_instances` (rotation step) | Instance 1 rotates at 100 ns while instance 2 executes +4 and −2 edges at 150 ns: instance 1 12 edges, instance 2 6 edges, each at exact times and only in its own log |
+| `rotation_start` | Forward and reverse from a state centre: edges at (k − ½) T, the start completes at 0.5 T, status rotating. From 1.125°: forward completes at 0.25 T, reverse at 0.75 T. ±60 rpm: completes at the rpm-form time of edge 1, status ±60 rpm. 0 rpm: completes at once, rotating at 0 rpm, no edge; after the stop at rest |
+| `rotation_long_run_timing` | 800 edges forward and reverse, each exactly at (k − ½) T; 7 rpm, 800 edges, each within one resolution step (85.7 s simulated). One expected TB_WARNING (time stamp truncation) |
+| `rotation_speed_change` | T → 2T at 1.0 T: edges at 0.5, 2, 4, 6 T, the change completes at 2 T. Status read at 10 ms during 60 rpm: rotating, 60 rpm; edge times unchanged. 60 rpm → 0 rpm a quarter interval after edge 1: completes at once, status 3.375°, no edge in 20 ms; back to 60 rpm: completes 9.375 ms later. Five changes of speed and direction: no illegal transition, checker position = status position |
+| `rotation_direction_change` | Reverse at 0.75 T: edges at 0.5, 1, 2 T, edges 2 and 3 reverse, edge 2 back to the zero state, the change completes at 1 T. +60 → −120 rpm 1.125° past the boundary: the reverse edge 1.5625 ms after the change |
+| `rotation_stop` | Stop at 1.75 T: completes at once, no further edge, status position 2, 7.875°, at rest. Forward start from there: first edge after 0.75 T; reverse start: after 0.25 T. Stop at 1.5 T (on the boundary): the edge at 1.5 T is emitted, status 6.75°, position 2; a reverse start emits its edge at its start |
+| `commands_rejected_during_rotation` | Edge move, angle move, move to state, centre state, set angle, jump (transaction `FAILED`), second start: one `TB_ERROR` each, zero time; 10 edges at exact times. At 0 rpm a move is rejected as well |
+| `speed_change_and_stop_without_rotation` | Speed change (rpm, time form, profile) without rotation: one `TB_ERROR` each, no event. Stop: one `TB_WARNING`, zero time, no event; with `stop_when_idle_severity = ERROR` one `ERROR` |
+| `terminate_and_flush_during_rotation` | Terminate with the executor idle at 2.25 T: no further event, status 10.125°, at rest; the next move is not terminated and emits its first edge after T/4. Terminate during `insert_delay`: the delay ends at the terminate, no further event. Terminate while a speed change to 10 T waits for its edge: it ends at the terminate, status 4.95°, at rest. `flush_command_queue` removes a queued move: 10 edges at exact times, no `TB_ERROR` |
+| `config_change_during_rotation` | Bounce enabled between edges 1 and 2: edges 1 and 2 without bounce, edges 3 to 5 with one pulse each (`check_bounce`). `cycles_per_rev` 20 → 10 during 6000 rpm: 50 edges at the 20-cycle spacing, no index at position 40. Index width 5, bounce window 0 ns, jitter 45° written between edges: one `TB_ERROR` each at the next edge, none more while the value stays; 14 edges at exact times, no bounce, Z per the default index |
+| `index_bounce_and_jitter_in_rotation` | Index width 2 at state `00`, Z inverted, 100 edges: Z follows the model, 2 activations. Bounce 2 pulses in 300 ns on 5 edges. Jitter 18° on 1000 edges: `check_jitter_stats` (bounds reached, mean). One expected TB_WARNING |
+| `invalid_rotation` | Start with 0 ns (transaction `FAILED`), −1 ns, non-finite rpm: one `TB_ERROR` each, no event, at rest. During a rotation, changes to 0 ns and to a non-finite rpm: one `TB_ERROR` each, 5 edges at exact times |
+| `speed_profile` | (60, 120) hold: completes at 6.25 ms, edges at 6.25, 18.75, 28.125, 34.375, 40.625, 46.875 ms. (0, 60): completes at 31.25 ms, one edge until 40 ms. (60, −60): edges at 6.25, 18.75 ms forward, 31.25, 43.75 ms reverse. (0): completes at 25 ms, rotating, no edge. (60, 120) with jitter 18°: 32 edges, each within the amplitude of its entry's speed, jittered. 256 entries of 6000 rpm, 1 µs each, `PROFILE_STOP`: accepted, completes at 62.5 µs, 2 edges, at rest after 256 µs. One expected TB_WARNING |
+| `speed_profile_end` | Hold: 8 edges up to 59.375 ms. Repeat: 9 edges, 56.25, 68.75, 78.125 ms after the first pass. Stop: completes at 6.25 ms, at rest at 27°, position 6 at 50 ms, no further edge; a following stop raises one `TB_WARNING`. A speed change to 1 ms per edge at 30 ms during a repeating profile: first edge at 30.7 ms, then every 1 ms up to 59.7 ms, no repeat at 50 ms |
+| `invalid_speed_profile` | Empty, non-finite entry, `time_per_entry` 0 ns, 257 entries: one `TB_ERROR` each as a start (no rotation) and as a speed change during a rotation (5 edges at exact times) |
+
+### 7.3 Requirement status
+
+| REQ | Implemented | Verified (NVC) | Test |
+|---|---|---|---|
+| REQ-003, 004 (rotation) | Yes | PASS | `hold_between_commands` |
+| REQ-045, 054, 063 (during a rotation) | Yes | PASS | `config_change_during_rotation` |
+| REQ-083 (rotation) | Yes | PASS | `multiple_instances` |
+| REQ-085 (rotation) | Yes | PASS (Sim); Review: "Took effect", "Stopped", "Terminated …" and profile-end lines in the evidence log | all Inc 5 tests |
+| REQ-086 (rotation) | Yes | PASS | `rotation_start`, `rotation_speed_change` |
+| REQ-100 | Yes | PASS | `rotation_start` |
+| REQ-101 | Yes | PASS | `rotation_long_run_timing` |
+| REQ-102 | Yes | PASS | `rotation_speed_change` |
+| REQ-103 | Yes | PASS | `rotation_direction_change` |
+| REQ-104 | Yes | PASS | `rotation_stop` |
+| REQ-105 | Yes | PASS | `commands_rejected_during_rotation` |
+| REQ-106 | Yes | PASS | `speed_change_and_stop_without_rotation`, `speed_profile_end` |
+| REQ-107 | Yes | PASS | `terminate_and_flush_during_rotation` |
+| REQ-108 | Yes | PASS | `config_change_during_rotation` |
+| REQ-109 | Yes | PASS | `index_bounce_and_jitter_in_rotation`, `speed_profile` (jitter per entry) |
+| REQ-110 (VVC) | Yes | PASS | `invalid_rotation` |
+| REQ-111 | Yes | PASS | `speed_profile` |
+| REQ-112, 113 | Yes | PASS | `speed_profile_end` |
+| REQ-114 | Yes | PASS | `invalid_speed_profile` |
+
+With Increment 5 every feature except REQ-033 (documentation example, Phase 6) has a passing test on NVC.
+
+### 7.4 Results
+
+| Check | Simulator | Command | Result | Evidence |
+|---|---|---|---|---|
+| Regression, 50 tests (30 BFM, 20 VVC) | NVC 1.23.0 (1 fs) | `cd sim && python3 ../script/maintenance_script/test.py -s NVC -fr -v` | **PASS** (50 passing, no minor alerts, exit 0) | `doc/evidence/inc5/regression_nvc.log` |
+| GHDL, Questa | – | – | NOT RUN (Stage 5.4) | – |
+| VSG | – | – | BLOCKED (F-022, Stage 5.4) | – |
+
+Runs: run 1 – compile error, `reject` is a reserved word (F-029); run 2 – 49/50, a test expectation in `rotation_direction_change` (stop on an edge time, F-030; log `doc/evidence/inc5/regression_nvc_test_bug_direction_change.log`); run 3 – 50/50, 3 with minor alerts (time stamp truncation, F-031); run 4 – 50/50 PASS, exit 0.
+
+Mutation checks: NOT RUN (optional, can be offered for D-101/D-102 at the boundary).
+
+### 7.5 Decisions taken during the increment
+
+By the user (2026-11-11, before coding):
+- **D-101** (E-5.3) a rotation takes the shared configuration after every edge; a change between edges k and k+1 takes effect from edge k+2; no engine API change. REQ-108 reworded;
+- **D-102** `terminate_current_command` halts a running rotation also while the executor runs another command, which is terminated as well. REQ-107 extended;
+- **D-103** every command the VVC rejects with `TB_ERROR` ends with transaction status `FAILED`; a stop without rotation `COMPLETED`.
+
+Taken in one-shot mode (internal, for review):
+- **D-104** (E-5.1) a change at an edge time completes at the first edge after it; the edge at the change time belongs to the old motion (D-25);
+- **D-105** rejections that depend on the rotation state are decided in `p_motion`, not in the executor;
+- **D-106** (E-5.2) the interpreter halts only a running rotation (`rotation_active`); queued rotation commands are not affected by `terminate_current_command`.
+
+Also internal: command field `has_profile` to reject an empty profile (an empty profile would otherwise look like a constant speed); `check_edge_times_list` made public in the testbench package.
+
+### 7.6 Notes for Stage 5.4
+
+- Jitter steps and the 7 rpm run each declare one expected time-stamp-truncation `TB_WARNING`. On GHDL (fs) and Questa (`-t ps`) the jittered times also lie between whole ns, so the count should hold; check it per simulator.
+- `rotation_long_run_timing` simulates 85.7 s at 7 rpm and `speed_profile` about 0.2 s; NVC needed seconds. Watch the Questa Starter run time (E-2.2).

@@ -39,7 +39,8 @@ package vvc_cmd_pkg is
   --==========================================================================================
   type t_vvc_cmd_record is record
     -- VVC dedicated fields
-    motion                    : t_rotary_encoder_motion;  -- Moves; also direction/num (jump) and angle (set angle)
+    motion                    : t_rotary_encoder_motion;  -- Moves and rotations; also direction/num (jump) and angle (set angle)
+    has_profile               : boolean;                  -- Rotation start or speed change given as a speed profile
     -- Common VVC fields  (Used by td_vvc_framework_common_methods_pkg procedures, and thus mandatory)
     operation                 : t_operation;
     proc_call                 : string(1 to C_VVC_CMD_STRING_MAX_LENGTH);
@@ -60,6 +61,7 @@ package vvc_cmd_pkg is
   constant C_VVC_CMD_DEFAULT : t_vvc_cmd_record := (
     -- VVC dedicated fields
     motion                    => C_ROTARY_ENCODER_MOTION_DEFAULT,
+    has_profile               => false,
     -- Common VVC fields
     operation                 => NO_OPERATION,
     proc_call                 => (others => NUL),
