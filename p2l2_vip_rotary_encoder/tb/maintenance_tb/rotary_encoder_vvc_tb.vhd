@@ -158,19 +158,20 @@ begin
                            ID_SEQUENCER_SUB);
     end procedure;
 
-    -- Logged event event_idx of instance idx at expected +- tolerance
+    -- Logged event event_idx of instance idx at expected +- time_tolerance
     procedure check_event_time(
-      constant idx       : in positive;
-      constant event_idx : in natural;
-      constant expected  : in time;
-      constant tolerance : in time;
-      constant msg       : in string) is
+      constant idx            : in positive;
+      constant event_idx      : in natural;
+      constant expected       : in time;
+      constant time_tolerance : in time;
+      constant msg            : in string) is
     begin
       if shared_th_event_log.count(idx) <= event_idx then
         alert(ERROR, "event " & to_string(event_idx) & " missing: " & msg, C_SCOPE);
       else
-        check_value_in_range(shared_th_event_log.get(idx, event_idx).time_stamp, expected - tolerance, expected + tolerance, ERROR,
-                             "event " & to_string(event_idx) & " time: " & msg, C_SCOPE, ID_SEQUENCER_SUB);
+        check_value_in_range(shared_th_event_log.get(idx, event_idx).time_stamp, expected - time_tolerance,
+                             expected + time_tolerance, ERROR, "event " & to_string(event_idx) & " time: " & msg, C_SCOPE,
+                             ID_SEQUENCER_SUB);
       end if;
     end procedure;
 
@@ -235,7 +236,6 @@ begin
       wait for C_QUIET_TIME;
       check_value(shared_th_event_log.count(idx), v_rej_count, ERROR, "no event: " & msg, C_SCOPE, ID_SEQUENCER_SUB);
     end procedure;
-
 
     -- Waits until the absolute time t
     procedure wait_until(

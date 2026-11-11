@@ -659,28 +659,29 @@ begin
                            ID_SEQUENCER_SUB);
     end procedure;
 
-    -- Logged event idx at expected +- tolerance
+    -- Logged event idx at expected +- time_tolerance
     procedure check_event_time(
-      constant idx       : in natural;
-      constant expected  : in time;
-      constant tolerance : in time;
-      constant msg       : in string) is
+      constant idx            : in natural;
+      constant expected       : in time;
+      constant time_tolerance : in time;
+      constant msg            : in string) is
     begin
       if shared_th_event_log.count(C_ID) <= idx then
         alert(ERROR, "event " & to_string(idx) & " missing: " & msg, C_SCOPE);
       else
-        check_value_in_range(shared_th_event_log.get(C_ID, idx).time_stamp, expected - tolerance, expected + tolerance, ERROR,
-                             "event " & to_string(idx) & " time: " & msg, C_SCOPE, ID_SEQUENCER_SUB);
+        check_value_in_range(shared_th_event_log.get(C_ID, idx).time_stamp, expected - time_tolerance,
+                             expected + time_tolerance, ERROR, "event " & to_string(idx) & " time: " & msg, C_SCOPE,
+                             ID_SEQUENCER_SUB);
       end if;
     end procedure;
 
     procedure check_duration(
-      constant expected  : in time;
-      constant tolerance : in time;
-      constant msg       : in string) is
+      constant expected       : in time;
+      constant time_tolerance : in time;
+      constant msg            : in string) is
     begin
-      check_value_in_range(now - v_t_start, expected - tolerance, expected + tolerance, ERROR, "duration: " & msg, C_SCOPE,
-                           ID_SEQUENCER_SUB);
+      check_value_in_range(now - v_t_start, expected - time_tolerance, expected + time_tolerance, ERROR, "duration: " & msg,
+                           C_SCOPE, ID_SEQUENCER_SUB);
     end procedure;
 
     -- linear_ramp: actual equals expected entry by entry (exact: the hand values are exact in binary floating point)
@@ -2086,9 +2087,9 @@ begin
       log_step("Invalid arguments: one TB_ERROR each, an empty profile");
       increment_expected_alerts_and_stop_limit(TB_ERROR, 3, "invalid linear ramps");
       v_alerts := get_alert_counter(TB_ERROR);
-      check_value(rotary_encoder_linear_ramp(0.0, 60.0, 0)'length, 0, ERROR, "0 entries", C_SCOPE, ID_SEQUENCER_SUB);
-      check_value(rotary_encoder_linear_ramp(0.0, 60.0, -1)'length, 0, ERROR, "-1 entries", C_SCOPE, ID_SEQUENCER_SUB);
-      check_value(rotary_encoder_linear_ramp(real'high, 60.0, 2)'length, 0, ERROR, "start not finite", C_SCOPE, ID_SEQUENCER_SUB);
+      check_ramp(rotary_encoder_linear_ramp(0.0, 60.0, 0), C_EMPTY_PROFILE, "0 entries");
+      check_ramp(rotary_encoder_linear_ramp(0.0, 60.0, -1), C_EMPTY_PROFILE, "-1 entries");
+      check_ramp(rotary_encoder_linear_ramp(real'high, 60.0, 2), C_EMPTY_PROFILE, "start not finite");
       check_value(get_alert_counter(TB_ERROR) - v_alerts, 3, ERROR, "one TB_ERROR per invalid call", C_SCOPE, ID_SEQUENCER_SUB);
 
     --============================================================================================================================

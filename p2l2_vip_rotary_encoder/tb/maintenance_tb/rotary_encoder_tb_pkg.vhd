@@ -126,16 +126,16 @@ package rotary_encoder_tb_pkg is
     constant degrees : in natural;
     constant rpm     : in positive) return time;
 
-  -- Edges first_idx .. first_idx + num_edges - 1 of the log are A/B edges at expected(k) +- tolerance, k = 1 to num_edges
+  -- Edges first_idx .. first_idx + num_edges - 1 of the log are A/B edges at expected(k) +- time_tolerance, k = 1 to num_edges
   procedure check_edge_times_list(
-    variable event_log : inout t_event_log;
-    constant id        : in positive;
-    constant first_idx : in natural;
-    constant num_edges : in positive;
-    constant expected  : in time_vector; -- (1 to num_edges)
-    constant tolerance : in time;
-    constant msg       : in string;
-    constant scope     : in string := C_TB_SCOPE_DEFAULT);
+    variable event_log      : inout t_event_log;
+    constant id             : in positive;
+    constant first_idx      : in natural;
+    constant num_edges      : in positive;
+    constant expected       : in time_vector; -- (1 to num_edges)
+    constant time_tolerance : in time;
+    constant msg            : in string;
+    constant scope          : in string := C_TB_SCOPE_DEFAULT);
 
   -- Edges first_idx .. first_idx + num_edges - 1 of the log are A/B edges at exactly t_start + (k - 1/2) * time_per_edge
   procedure check_edge_times(
@@ -260,18 +260,18 @@ package rotary_encoder_tb_pkg is
     constant msg            : in    string;
     constant scope          : in    string := C_TB_SCOPE_DEFAULT);
 
-  -- Displacements of the A/B entries first_idx .. from expected: each within +-(amplitude + tolerance), the
+  -- Displacements of the A/B entries first_idx .. from expected: each within +-(amplitude + time_tolerance), the
   -- largest at least C_JITTER_BOUND_REACHED * amplitude in both directions, the mean within C_JITTER_MEAN_FRACTION *
   -- amplitude
   procedure check_jitter_stats(
-    variable event_log : inout t_event_log;
-    constant id        : in    positive;
-    constant first_idx : in    natural;
-    constant expected  : in    time_vector;
-    constant amplitude : in    time;
-    constant tolerance : in    time;
-    constant msg       : in    string;
-    constant scope     : in    string := C_TB_SCOPE_DEFAULT);
+    variable event_log      : inout t_event_log;
+    constant id             : in    positive;
+    constant first_idx      : in    natural;
+    constant expected       : in    time_vector;
+    constant amplitude      : in    time;
+    constant time_tolerance : in    time;
+    constant msg            : in    string;
+    constant scope          : in    string := C_TB_SCOPE_DEFAULT);
 
 end package rotary_encoder_tb_pkg;
 
@@ -488,14 +488,14 @@ package body rotary_encoder_tb_pkg is
   end function;
 
   procedure check_edge_times_list(
-    variable event_log : inout t_event_log;
-    constant id        : in positive;
-    constant first_idx : in natural;
-    constant num_edges : in positive;
-    constant expected  : in time_vector; -- (1 to num_edges)
-    constant tolerance : in time;
-    constant msg       : in string;
-    constant scope     : in string := C_TB_SCOPE_DEFAULT) is
+    variable event_log      : inout t_event_log;
+    constant id             : in positive;
+    constant first_idx      : in natural;
+    constant num_edges      : in positive;
+    constant expected       : in time_vector; -- (1 to num_edges)
+    constant time_tolerance : in time;
+    constant msg            : in string;
+    constant scope          : in string := C_TB_SCOPE_DEFAULT) is
     variable v_event   : t_enc_event;
     variable v_dev     : time;
     variable v_max_dev : time    := 0 ns;
@@ -512,9 +512,9 @@ package body rotary_encoder_tb_pkg is
       if abs(v_dev) > v_max_dev then
         v_max_dev := abs(v_dev);
       end if;
-      if v_ok and (not (v_event.a_changed or v_event.b_changed) or abs(v_dev) > tolerance) then
+      if v_ok and (not (v_event.a_changed or v_event.b_changed) or abs(v_dev) > time_tolerance) then
         alert(ERROR, "encoder " & to_string(id) & ": edge " & to_string(k) & " at " & to_string(v_event.time_stamp, ns) &
-                     ", expected " & to_string(expected(k), ns) & " +-" & to_string(tolerance, ns) & " (A/B changed: " &
+                     ", expected " & to_string(expected(k), ns) & " +-" & to_string(time_tolerance, ns) & " (A/B changed: " &
                      to_string(v_event.a_changed or v_event.b_changed) & "): " & msg, scope);
         v_ok := false;
       end if;
@@ -750,7 +750,7 @@ package body rotary_encoder_tb_pkg is
     variable v_event     : t_enc_event;
     variable v_count     : natural;
     variable v_dev       : time;
-    variable v_tolerance : time    := 0 ns; -- Edge time tolerance: exact without jitter
+    variable v_tolerance : time    := 0 ns; -- Edge time time_tolerance: exact without jitter
     variable v_earlier   : boolean := false;
     variable v_later     : boolean := false;
     variable v_ok        : boolean := true;
@@ -873,14 +873,14 @@ package body rotary_encoder_tb_pkg is
   end function;
 
   procedure check_jitter_stats(
-    variable event_log : inout t_event_log;
-    constant id        : in    positive;
-    constant first_idx : in    natural;
-    constant expected  : in    time_vector;
-    constant amplitude : in    time;
-    constant tolerance : in    time;
-    constant msg       : in    string;
-    constant scope     : in    string := C_TB_SCOPE_DEFAULT) is
+    variable event_log      : inout t_event_log;
+    constant id             : in    positive;
+    constant first_idx      : in    natural;
+    constant expected       : in    time_vector;
+    constant amplitude      : in    time;
+    constant time_tolerance : in    time;
+    constant msg            : in    string;
+    constant scope          : in    string := C_TB_SCOPE_DEFAULT) is
     variable v_event : t_enc_event;
     variable v_dev   : time;
     variable v_max   : time    := -amplitude;
@@ -897,7 +897,7 @@ package body rotary_encoder_tb_pkg is
     for k in expected'range loop
       v_event := event_log.get(id, first_idx + k - expected'low);
       v_dev   := v_event.time_stamp - expected(k);
-      if v_ok and (not (v_event.a_changed or v_event.b_changed) or abs(v_dev) > amplitude + tolerance) then
+      if v_ok and (not (v_event.a_changed or v_event.b_changed) or abs(v_dev) > amplitude + time_tolerance) then
         alert(ERROR, "encoder " & to_string(id) & ": edge " & to_string(k) & " at " & to_string(v_event.time_stamp, ns) &
                      ", displaced by " & to_string(v_dev, ns) & ", amplitude " & to_string(amplitude, ns) & ": " & msg, scope);
         v_ok := false;

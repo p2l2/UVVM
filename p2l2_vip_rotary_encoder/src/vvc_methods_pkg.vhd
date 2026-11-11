@@ -282,7 +282,6 @@ package vvc_methods_pkg is
     constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
   );
 
-
   -- Stores the t_rotary_encoder_status at execution time in the result queue; read it with fetch_result()
   procedure rotary_encoder_get_status(
     signal   VVCT                : inout t_vvc_target_record;

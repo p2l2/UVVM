@@ -1,9 +1,9 @@
 # Rotary Encoder VVC – Status
 
 ## 1. Current state
-- **Phase:** **Phase 5 – Implementation and verification**, Stage 5.3 – Increments. Increments 1–4 approved and committed by the user (Inc 4 `842f9876`).
-- **Increment 5 – VVC rotation:** implemented 2026-11-11, NVC 50/50 PASS (no minor alerts). User decisions D-101 (config change takes effect from edge k+2, no API change), D-102 (terminate always halts a rotation), D-103 (FAILED for every VVC rejection); one-shot decisions D-104 to D-106 for review. Design rev 0.6 (REQ-107, REQ-108 reworded), report rev 0.11 §7, findings F-029 to F-031. **Boundary pending:** user review of design rev 0.6 and Increment 5, commit by the user (uncommitted).
-- **Next step:** Increment 5 boundary (approval, user commit), then Stage 5.4 – Integration and verification report: shared files S-2 to S-6, regression on GHDL/NVC/Questa, VSG (F-022), report.
+- **Phase:** **Phase 5 – Implementation and verification**, Stage 5.4 – Integration and verification report: done, awaiting the user's review and approval. Increments 1–5 committed by the user (Inc 5 `8acf9518`).
+- **Stage 5.4 changes (uncommitted):** shared files S-2 to S-6; warning fixes in `src/` and `tb/` (F-032, F-033); VSG formatting; report rev 0.12, design rev 0.7, findings F-022 resolved, F-032, F-033.
+- **Next step:** Phase 6 – Documentation (S-7/S-8, `vip_rotary_encoder.rst`, doc-example testbench incl. REQ-033), after approval of Stage 5.4.
 - **Last updated:** 2026-11-11
 
 ## 2. Workspace
@@ -28,23 +28,23 @@
 | Riviera-PRO | – | not installed |
 | Python / HDLRegression | 3.14.7 / 1.6.0 | works |
 | sphinx-build | 9.1.0 | works |
-| VSG | 3.29.0 | works; rejects `uvvm.yaml` (F-022, Stage 5.4) |
+| VSG | 3.29.0 (system) / 3.36.0 (venv `doc/evidence/stage5_4/vsg_venv`) | 3.29.0 cannot read `uvvm.yaml` (F-022); lint with 3.36.0 |
 
 ## 4. Settings
 - Role: encoder only; scope and defaults in design §2
 - Implementation mode: **one-shot** with a pause at each increment boundary (chosen 2026-10-27)
 - Development simulator: **NVC 1.23.0** (Stages 5.2–5.3); Stage 5.4 runs GHDL, NVC, Questa
 - Commit policy: **user commits** (I stop at boundaries, never commit or push), chosen 2026-10-27
-- Shared-file scope: S-1 to S-8 approved (design §9.2; S-1 done in Stage 5.1, S-2 to S-6 in Stage 5.4, S-7/S-8 in Phase 6)
+- Shared-file scope: S-1 to S-8 approved (design §9.2; S-1 done in Stage 5.1, S-2 to S-6 done in Stage 5.4, S-7/S-8 in Phase 6)
 - Scripts: official first (user rule 2026-10-27), from `bitvis_vip_gpio`. Regression from `p2l2_vip_rotary_encoder/sim`: `python3 ../script/maintenance_script/test.py -s NVC -fr -v`
 
 ## 5. Artifacts
 | Artifact | Path | Rev | Status |
 |---|---|---|---|
 | Specification | `doc/rotary_encoder_spec.md` | 0.13 | Approved 2026-11-11 (glitch removed from A-12) |
-| Design document | `doc/rotary_encoder_vvc_design.md` | 0.6 | Rev 0.4 approved 2026-11-11. Rev 0.5 (Inc 4: D-95…D-99; glitch removed, D-100; 30 BFM / 20 VVC = 50 test cases) approved 2026-11-11. 71 features, decision log D-1…D-100 |
-| Implementation report | `doc/rotary_encoder_vvc_implementation_report.md` | 0.11 | Stages 5.1, 5.2, Inc 1–5 (§3–§7) |
-| Findings log | `doc/rotary_encoder_vvc_findings.md` | – | 31 entries |
+| Design document | `doc/rotary_encoder_vvc_design.md` | 0.7 | Rev 0.6 approved 2026-11-11; rev 0.7 (Stage 5.4 row in Increments) review pending. 71 features, 50 test cases, decision log D-1…D-106 |
+| Implementation report | `doc/rotary_encoder_vvc_implementation_report.md` | 0.12 | Stages 5.1, 5.2, Inc 1–5 (§1–§7), Stage 5.4 (§8) |
+| Findings log | `doc/rotary_encoder_vvc_findings.md` | – | 33 entries |
 | Documentation | – | – | not started |
 | Audit | – | – | not started |
 
@@ -63,13 +63,14 @@
 | Stage 5.3 – Increment 2: BFM signal options | 2026-11-10 | approved, `a482f55a`, `27e50a52` |
 | Stage 5.3 – Increment 3: BFM faults, timed rotation, ramp | 2026-11-11 | approved (incl. D-89 to D-94), `3e4a08cf` |
 | Stage 5.3 – Increment 4: VVC commands | 2026-11-11 | approved (with spec rev 0.13, design rev 0.5), `842f9876` |
-| Stage 5.3 – Increment 5: VVC rotation | – | pending (design rev 0.6, D-104…D-106 for review) |
+| Stage 5.3 – Increment 5: VVC rotation | 2026-11-11 | approved (design rev 0.6, D-101…D-106), `8acf9518` |
+| Stage 5.4 – Integration and verification report | – | review pending |
 
 ## 7. Latest checks
-- Inc 5 (2026-11-11): NVC PASS 50 tests (30 BFM, 20 VVC), no minor alerts, `doc/evidence/inc5/regression_nvc.log`. GHDL/Questa NOT RUN (Stage 5.4). VSG BLOCKED (F-022). Mutation checks NOT RUN (optional)
+- Stage 5.4 (2026-11-11), evidence `doc/evidence/stage5_4/`: compile-all GHDL/NVC/Questa PASS; `uvvm_all_context` + user entity PASS on all three; GHDL `-Wall` 0 warnings; regression 50/50 PASS on NVC (8 s), GHDL (19 s), Questa (2 min 31 s), only declared TB_WARNINGs; VSG 3.36.0 0 findings. Mutation checks NOT RUN (optional)
 
 ## 8. Open items
-- REQ-086 rotation part, REQ-003/083 rotation parts, REQ-085 rotation logging: Inc 5
-- `rotary_encoder_run_motion` rotation/profile path is implemented but only tested through the VVC (Inc 5)
-- Inc 5 and Stage 5.4 expected decisions and notes: design §8 (E-5.1 … E-5.3, E-2.2, F-021, F-022), report §6.6; F-028 watch in Stage 5.4
-- REQ-033 crossed-wiring example: verified by the documentation example in Phase 6 – Documentation
+- REQ-033 crossed-wiring example and doc-example testbench: Phase 6 – Documentation
+- S-7/S-8: Phase 6 – Documentation
+- System VSG 3.29.0 cannot read `uvvm.yaml`: upgrade is the user's choice
+- `sim/` leftovers of a Questa run (13:46) copied to `doc/evidence/stage5_4/sim_leftover_1346/`

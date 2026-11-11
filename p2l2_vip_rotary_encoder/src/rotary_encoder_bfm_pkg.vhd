@@ -1476,7 +1476,7 @@ package body rotary_encoder_bfm_pkg is
       end if;
       v_limit := jitter_limit(config);
     end if;
-    if signal_config_error(config, v_limit)'length > 0 then
+    if signal_config_error(config, v_limit) /= "" then
       alert(TB_ERROR, proc_call & "=> Failed. " & signal_config_error(config, v_limit) & add_msg_delimiter(msg), scope);
       return false;
     end if;
@@ -1552,12 +1552,12 @@ package body rotary_encoder_bfm_pkg is
         return;
       end if;
       for i in 0 to motion.profile_length - 1 loop
-        if speed_error(SPEED_RPM, motion.profile(i), motion.time_per_edge, v_cpr, true)'length > 0 then
+        if speed_error(SPEED_RPM, motion.profile(i), motion.time_per_edge, v_cpr, true) /= "" then
           fail("Profile entry " & to_string(i) & ": " & speed_error(SPEED_RPM, motion.profile(i), motion.time_per_edge, v_cpr, true));
           return;
         end if;
       end loop;
-    elsif speed_error(motion.speed_form, motion.rpm, motion.time_per_edge, v_cpr, C_IS_ROT)'length > 0 then
+    elsif speed_error(motion.speed_form, motion.rpm, motion.time_per_edge, v_cpr, C_IS_ROT) /= "" then
       fail(speed_error(motion.speed_form, motion.rpm, motion.time_per_edge, v_cpr, C_IS_ROT));
       return;
     end if;

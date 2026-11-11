@@ -666,6 +666,6 @@ begin
   -- - Handles the termination request record (sets and resets terminate flag on request)
   --==========================================================================================
   cmd_terminator : uvvm_vvc_framework.ti_vvc_framework_support_pkg.flag_handler(terminate_current_cmd);  -- flag: is_active, set, reset
-  --==========================================================================================
+--==========================================================================================
 
 end architecture behave;

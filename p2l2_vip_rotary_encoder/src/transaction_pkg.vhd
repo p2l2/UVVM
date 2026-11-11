@@ -91,10 +91,8 @@ package transaction_pkg is
     profile_length      : natural;                      -- Speed profile entries; 0 for a constant speed
     time_per_entry      : time;
     profile_end         : t_rotary_encoder_profile_end;
-    edges               : natural;                      -- Edges emitted by a move (0 for other commands); valid at
-                                                        -- COMPLETED or FAILED
-    status              : t_rotary_encoder_status;      -- Encoder state at the end of the command (for a status read: its
-                                                        -- result); valid at COMPLETED or FAILED
+    edges               : natural;                      -- Edges emitted by a move, 0 otherwise; valid at COMPLETED/FAILED
+    status              : t_rotary_encoder_status;      -- State at the end (status read: its result); valid at COMPLETED/FAILED
     vvc_meta            : t_vvc_meta;
     transaction_status  : t_transaction_status;
   end record t_base_transaction;

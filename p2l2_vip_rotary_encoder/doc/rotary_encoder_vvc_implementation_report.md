@@ -2,7 +2,7 @@
 
 | Item | Value |
 |---|---|
-| Revision | 0.11 (Stage 5.3 – Increment 5: VVC rotation) |
+| Revision | 0.12 (Stage 5.4 – Integration and verification report) |
 | Date | 2026-11-11 |
 | Baseline | Branch `p2l2_vip_rotary_encoder`, base `90d56e93`; uvvm_util v2.21.4, uvvm_vvc_framework v2.12.15 |
 | Inputs | Specification rev 0.13, design rev 0.6 (Stages 5.1/5.2 and Increments 1–2 were built against the former separate requirements, architecture and testbench architecture documents, now merged into the design) |
@@ -23,6 +23,7 @@
 | 0.9 | 2026-11-11 | Increment 3: unused `last_rpm` removed; new test case `linear_ramp_rotation` (user request); NVC regression 32/32 |
 | 0.10 | 2026-11-11 | Increment 3 committed by the user (`3e4a08cf`). Glitch removed (D-100), Sections 5 and 6 updated; transaction info with the command's effect (D-98). New Section 6 – Increment 4: VVC commands (`p_motion`, executor handshake, moves, centre state, fault events, status read, terminate, transaction info, logging); 6 VVC test cases replace the Stage 5.2 placeholder; NVC regression 36/36 |
 | 0.11 | 2026-11-11 | Increment 4 committed by the user (`842f9876`). New Section 7 – Increment 5: VVC rotation (start, speed change, stop, profiles, rejects, terminate/flush, configuration after every edge; D-101 to D-106); 13 VVC test cases (11 new, rotation parts of 2); NVC regression 50/50. Section 6.3 rotation parts and 6.6 updated |
+| 0.12 | 2026-11-11 | Increment 5 committed by the user (`8acf9518`). New Section 8 – Stage 5.4: shared files S-2 to S-6, compile-all on three simulators, regression 50/50 on GHDL, NVC and Questa, VSG clean, warning fixes (F-032, F-033). Section 7.4 GHDL/Questa/VSG rows and Section 7.6 now point to Section 8 |
 
 ## 1. Stage 5.1 – Generate skeleton
 
@@ -140,8 +141,8 @@ Remaining check procedures of design 7.3 (`check_event_times`, `check_edge_seque
 |---|---|---|---|---|
 | Regression (2 tests: `rotary_encoder_bfm_tb.`testbench_self_test`, `vvc_instances_execute_commands`, `rotary_encoder_vvc_tb.`testbench_self_test`, `vvc_instances_execute_commands`) | NVC 1.23.0 (resolution 1 fs) | `cd p2l2_vip_rotary_encoder/sim && python3 ../script/maintenance_script/test.py -s NVC -fr -v` | **PASS** (2 passing, exit 0) | `doc/evidence/stage5_2/regression_nvc_verbose.log` |
 | `ideal_edge_time` self-test, fs branch | NVC | (in `testbench_self_test`, `vvc_instances_execute_commands`) | PASS, 7 of 7 values exact | same log |
-| `ideal_edge_time` self-test, ps branch | Questa | – | NOT RUN (Stage 5.4) | – |
-| GHDL, Questa | – | – | NOT RUN (Stage 5.4) | – |
+| `ideal_edge_time` self-test, ps branch | Questa | (in `testbench_self_test`) | **PASS** in Stage 5.4 (Section 8.3) | `doc/evidence/stage5_4/regression_questa.log` |
+| GHDL, Questa | – | – | Run in Stage 5.4: Section 8.3 | – |
 
 First run failed (F-007, testbench error, fixed).
 
@@ -227,7 +228,7 @@ REQ-002, 004, 006 and 096 are verified for the BFM; their VVC part is verified i
 | Check | Simulator | Command | Result | Evidence |
 |---|---|---|---|---|
 | Regression, 14 tests (`testbench_self_test`, `power_up_state`, `move_edges_forward_and_reverse`, `edge_timing`, `direction_reversal`, `zero_edge_move`, `invalid_speed`, `move_angle`, `move_angle_without_drift`, `invalid_angle_and_move_to_state`, `speed_conversion`, `move_to_state`, `center_state`; `vvc_instances_execute_commands`) | NVC 1.23.0 (1 fs) | `cd sim && python3 ../script/maintenance_script/test.py -s NVC -fr -v` | **PASS** (14 passing; expected TB_WARNING 1 in `edge_timing`, `move_angle`, `move_to_state`, none else) | `doc/evidence/inc1/regression_nvc_verbose.log` |
-| GHDL, Questa | – | – | NOT RUN (Stage 5.4) | – |
+| GHDL, Questa | – | – | Run in Stage 5.4: Section 8.3 | – |
 
 Rework runs: run 1 – 13 of 14 passed, `center_state` failed; run 2 – the same, one delta later; run 3 – 14/14; run 4 after the swap removal – 14/14; run 5 after the A/B inversion removal – 14/14 (the evidence log). Both `center_state` failures were testbench errors (finding F-015). The first implementation's runs (F-010, F-011, F-013) are in the findings log.
 
@@ -283,15 +284,15 @@ Waveform label: both testbenches write their step headers with `log_step`, which
 | REQ-032 | Yes | PASS (BFM; rotation REQ-109 in Inc 5) | `index_polarity` |
 | REQ-040, 041 | Yes | PASS | `index_once_per_revolution` |
 | REQ-042, 046 | Yes | PASS | `index_width_and_state` |
-| REQ-045 | Yes (call validation; per-call validation in `run_motion`) | PASS for calls; the rotation part NOT RUN (`config_change_during_rotation`, Inc 5) | `invalid_index_configuration` |
+| REQ-045 | Yes (call validation; per-call validation in `run_motion`) | PASS for calls; the rotation part PASS in Increment 5 (`config_change_during_rotation`, Section 7.3) | `invalid_index_configuration` |
 | REQ-050, 051, 052, 055 | Yes | PASS | `bounce` |
 | REQ-053 | Yes | PASS | `bounce_placement` |
-| REQ-054 | Yes | PASS for calls; the rotation part (rev 0.10) NOT RUN (`config_change_during_rotation`, Inc 5) | `bounce_cut_off_and_invalid_window` |
+| REQ-054 | Yes | PASS for calls; the rotation part PASS in Increment 5 (`config_change_during_rotation`, Section 7.3) | `bounce_cut_off_and_invalid_window` |
 | REQ-056 | Yes | PASS | `bounce_cut_off_and_invalid_window`, `bounce_with_jitter` |
 | REQ-057 | Yes (no BFM change: bounce is scheduled after the jittered edge is driven) | PASS | `bounce_with_jitter` |
 | REQ-060 | Yes | PASS (`edge_timing` unchanged, jitter off) | `edge_timing` |
 | REQ-061, 062 | Yes | PASS | `jitter` |
-| REQ-063 | Yes (limit from the configured offsets) | PASS for calls; the rotation part (rev 0.10) NOT RUN (`config_change_during_rotation`, Inc 5) | `invalid_jitter` |
+| REQ-063 | Yes (limit from the configured offsets) | PASS for calls; the rotation part PASS in Increment 5 (`config_change_during_rotation`, Section 7.3) | `invalid_jitter` |
 
 ### 4.4 Results
 
@@ -302,7 +303,7 @@ Waveform label: both testbenches write their step headers with `log_step`, which
 | Regression after adding `dbg_config`/`dbg_index_active` and `bounce_with_jitter`, 24 tests | NVC 1.23.0 (1 fs) | as above | **PASS** (24 passing; expected `TB_WARNING`: 2 in `bounce_with_jitter`) | `doc/evidence/inc2/regression_nvc_tc053.log` |
 | Regression after renaming the test cases and removing document references, 24 tests | NVC 1.23.0 (1 fs) | as above | **PASS** (24 passing) | `doc/evidence/inc2/regression_nvc_named_tests.log` |
 | Regression after the testbench constant review (literals with comments, constants only where shared or meaningful), 24 tests | NVC 1.23.0 (1 fs) | as above | **PASS** (24 passing) | `doc/evidence/inc2/regression_nvc_tb_literals.log` |
-| GHDL, Questa | – | – | NOT RUN (Stage 5.4) | – |
+| GHDL, Questa | – | – | Run in Stage 5.4: Section 8.3 | – |
 
 Runs: run 0 (BFM only, before the tests were added) – 14/14, Increment 1 unchanged; run 1 – 22/23, `bounce_placement` failed (testbench error, F-019); run 2 – 23/23 (the evidence log). E-2.2 (jitter test run time on Questa Starter) is measured in Stage 5.4; on NVC the whole regression takes a few seconds of wall time.
 
@@ -359,9 +360,9 @@ Also in this increment: `move_angle` checks the remaining status fields after th
 | REQ-075, 076, 077 | Yes | PASS | `edge_offsets`, `center_state` |
 | REQ-078, 079 | Yes | PASS | `stuck_outputs` |
 | REQ-080 | Yes | PASS | `bfm_only_flow_and_rotate` |
-| REQ-086 | BFM part: yes | PASS (BFM); VVC part: Section 6; rotation part NOT RUN (Inc 5) | `move_angle`, `bfm_only_flow_and_rotate` |
-| REQ-110 | BFM part (`rotary_encoder_rotate`, engine validation): yes | PASS (BFM); VVC commands NOT RUN (Inc 5) | `bfm_only_flow_and_rotate` |
-| REQ-111, 112 | Engine: yes | Through `rotary_encoder_rotate` only (PASS); the VVC criteria (completion at the first edge, profile replaced by a speed change) NOT RUN (Inc 5) | `bfm_only_flow_and_rotate`, `linear_ramp_rotation` |
+| REQ-086 | BFM part: yes | PASS (BFM); VVC part: Section 6; rotation part: Section 7.3 | `move_angle`, `bfm_only_flow_and_rotate` |
+| REQ-110 | BFM part (`rotary_encoder_rotate`, engine validation): yes | PASS (BFM); VVC commands: Section 7.3 | `bfm_only_flow_and_rotate` |
+| REQ-111, 112 | Engine: yes | Through `rotary_encoder_rotate` only (PASS); the VVC criteria (completion at the first edge, profile replaced by a speed change): Section 7.3 | `bfm_only_flow_and_rotate`, `linear_ramp_rotation` |
 | REQ-115 | Yes | PASS | `linear_ramp`, `linear_ramp_rotation` |
 
 ### 5.4 Results
@@ -371,8 +372,7 @@ Also in this increment: `move_angle` checks the remaining status fields after th
 | Regression, 31 tests (30 BFM, 1 VVC) | NVC 1.23.0 (1 fs) | `cd sim && python3 ../script/maintenance_script/test.py -s NVC -fr -v` | **PASS** (31 passing) | `doc/evidence/inc3/regression_nvc.log` |
 | Compile and elaborate after removing `last_rpm` (no simulation, as agreed with the user) | NVC 1.23.0 | Scratch compile of uvvm_util, uvvm_vvc_framework, the VIP and both testbenches (`--relaxed`), elaboration of `rotary_encoder_bfm_tb` and `rotary_encoder_vvc_tb` | **PASS** | – |
 | Regression after removing `last_rpm` and adding `linear_ramp_rotation`, 32 tests (31 BFM, 1 VVC) | NVC 1.23.0 (1 fs) | as above | **PASS** (32 passing) | `doc/evidence/inc3/regression_nvc_ramp_rotation.log` |
-| GHDL, Questa | – | – | NOT RUN (Stage 5.4) | – |
-| VSG | – | – | BLOCKED (F-022, Stage 5.4) | – |
+| GHDL, Questa, VSG | – | – | Run in Stage 5.4: Section 8.3 | – |
 
 Runs: run 1 – compile error (`string & std_logic` ambiguous in a message); run 2 – 23/24, `invalid_jitter` (F-025, testbench); run 3 – 30/31, `set_angle_and_jump_edges` read AB in the delta of the call (testbench, same cause as F-025); run 4 – 31/31; run 5 after merging two equal constants – 31/31 (the evidence log).
 
@@ -440,7 +440,7 @@ Implemented and approved 2026-11-11 against design rev 0.5 and spec rev 0.13 (bo
 |---|---|---|---|---|
 | Regression, 36 tests (30 BFM, 6 VVC) | NVC 1.23.0 (1 fs) | `cd sim && python3 ../script/maintenance_script/test.py -s NVC -fr -v` | **PASS** (36 passing, exit 0) | `doc/evidence/inc4/regression_nvc.log` |
 | REQ-085 log review (ID on/off) | NVC | in the regression | `vvc_commands`: the move with `ID_BFM` disabled has no `ID_BFM` line, the one after `enable_log_msg` has; move lines name the VVC call, edges, position and angle | same log |
-| GHDL, Questa | – | – | NOT RUN (Stage 5.4) | – |
+| GHDL, Questa | – | – | Run in Stage 5.4: Section 8.3 | – |
 | VSG | – | – | BLOCKED (F-022, Stage 5.4) | – |
 
 Runs: run 1 – compiled, 31/32: the placeholder `vvc_instances_execute_commands` expected "no driver yet" (removed as planned); run 2 – 37/37; run 3 (verbose) – 37/37; run 4 after `to_string` with 4 decimals – 37/37; run 5 with the stuck step – 37/37 PASS, then HDLRegression crashed while saving its project (F-028); run 6 – identical, 37/37, exit 0; run 7 after removing the glitch (D-100) – 36/36, exit 0; run 8 with the transaction-info effect fields (D-98, option A) – 36/36, exit 0.
@@ -530,7 +530,7 @@ With Increment 5 every feature except REQ-033 (documentation example, Phase 6) h
 | Check | Simulator | Command | Result | Evidence |
 |---|---|---|---|---|
 | Regression, 50 tests (30 BFM, 20 VVC) | NVC 1.23.0 (1 fs) | `cd sim && python3 ../script/maintenance_script/test.py -s NVC -fr -v` | **PASS** (50 passing, no minor alerts, exit 0) | `doc/evidence/inc5/regression_nvc.log` |
-| GHDL, Questa | – | – | NOT RUN (Stage 5.4) | – |
+| GHDL, Questa | – | – | Run in Stage 5.4: Section 8.3 | – |
 | VSG | – | – | BLOCKED (F-022, Stage 5.4) | – |
 
 Runs: run 1 – compile error, `reject` is a reserved word (F-029); run 2 – 49/50, a test expectation in `rotation_direction_change` (stop on an edge time, F-030; log `doc/evidence/inc5/regression_nvc_test_bug_direction_change.log`); run 3 – 50/50, 3 with minor alerts (time stamp truncation, F-031); run 4 – 50/50 PASS, exit 0.
@@ -553,5 +553,68 @@ Also internal: command field `has_profile` to reject an empty profile (an empty 
 
 ### 7.6 Notes for Stage 5.4
 
-- Jitter steps and the 7 rpm run each declare one expected time-stamp-truncation `TB_WARNING`. On GHDL (fs) and Questa (`-t ps`) the jittered times also lie between whole ns, so the count should hold; check it per simulator.
-- `rotation_long_run_timing` simulates 85.7 s at 7 rpm and `speed_profile` about 0.2 s; NVC needed seconds. Watch the Questa Starter run time (E-2.2).
+Both notes were checked in Stage 5.4 (Section 8.3): the expected time-stamp `TB_WARNING`s hold on all three simulators, and the Questa Starter run takes 2 min 31 s of simulation for all 50 tests.
+
+---
+
+## 8. Stage 5.4 – Integration and verification report
+
+### 8.1 Shared files (design 9.2, scope approved)
+
+| # | File | Change | Verified with | Result |
+|---|---|---|---|---|
+| S-2 | `script/component_list.txt` | `p2l2_vip_rotary_encoder` appended | `script/compile_all.sh` on GHDL, NVC, Questa (8.3) | **PASS** |
+| S-3 | `misc/context/uvvm_all_context.vhd` | `library p2l2_vip_rotary_encoder; context p2l2_vip_rotary_encoder.vvc_context;` after `external_vip_apb` | Context compiled against the compile-all libraries, plus an entity that uses `uvvm_all_context` and calls `rotary_encoder_move_edges` (`doc/evidence/stage5_4/context_user.vhd`), on all three simulators | **PASS** |
+| S-4 | `versions.txt` | `p2l2_vip_rotary_encoder, version v1.0.0` appended, no trailing newline (as before) | Review | **PASS** |
+| S-5 | `vhdl_ls.toml` | Block `p2l2_vip_rotary_encoder.files` (framework `src_target_dependent` + VIP) after `external_vip_apb` | Review (same shape as the PWM precedent) | **PASS** |
+| S-6 | `release/code_conventions/uvvm.yaml` | `'ROTARY_ENCODER_VVCT'` added to `case_exceptions` | VSG run (8.4) | **PASS** |
+
+S-1 was done in Stage 5.1; S-7 and S-8 belong to Phase 6 – Documentation. No checkout script compiles `uvvm_all_context.vhd`, so S-3 was checked by hand.
+
+### 8.2 Source and testbench changes
+
+| File | Change | Reason |
+|---|---|---|
+| `src/rotary_encoder_bfm_pkg.vhd` | `f(...)'length > 0` → `f(...) /= ""` (3 places: `signal_config_error`, `speed_error`) | GHDL `-Wattribute`: an attribute prefix must be an object (F-032) |
+| `src/transaction_pkg.vhd` | Comments of `edges` and `status` on one line each | VSG `comment_010` had moved the continuation lines away from their field |
+| `src/rotary_encoder_vvc.vhd`, `src/vvc_methods_pkg.vhd` | Closing separator at column 0 (as `bitvis_vip_gpio`), one double blank line removed | VSG `comment_010`, `whitespace_200` |
+| `tb/maintenance_tb/rotary_encoder_tb_pkg.vhd`, `rotary_encoder_bfm_tb.vhd`, `rotary_encoder_vvc_tb.vhd` | Parameter `tolerance` → `time_tolerance`; parameter lists realigned, 3 lines rewrapped to ≤ 130 columns | `tolerance` is an AMS-VHDL reserved word; GHDL `-Wreserved-word` made HDLRegression fail the compile (F-033) |
+| `tb/maintenance_tb/rotary_encoder_bfm_tb.vhd` | The 3 invalid-ramp checks use `check_ramp(…, C_EMPTY_PROFILE, …)` | GHDL `-Wattribute` on `rotary_encoder_linear_ramp(...)'length` (F-033) |
+| `tb/maintenance_tb/rotary_encoder_th.vhd` | Parameter alignment | VSG `procedure_410` |
+
+No functional change: the public API, the features and the test cases are unchanged.
+
+### 8.3 Results
+
+Regression command, from `p2l2_vip_rotary_encoder/sim`: `python3 ../script/maintenance_script/test.py -s <SIM> -fr -v`.
+
+| Check | Simulator | Result | Evidence (`doc/evidence/stage5_4/`) |
+|---|---|---|---|
+| Compile-all `bash script/compile_all.sh <sim> <dir>` (all 26 components) | GHDL 6.0.0 | **PASS**, exit 0, no warnings | `compile_all_ghdl.log` |
+| | NVC 1.23.0 | **PASS**, exit 0; only the UVVM-wide "shared variable must have protected type" warnings | `compile_all_nvc.log` |
+| | Questa Starter 2025.3 | **PASS**, exit 0; same UVVM-wide warnings, plus one intentional null range (`C_EMPTY` in `rotary_encoder_linear_ramp`, as in `bitvis_vip_i2c`) | `compile_all_vsim.log` |
+| `uvvm_all_context` + user entity | GHDL, NVC, Questa | **PASS** | `context_compile.log`, `context_user.vhd` |
+| VIP + testbench with the `test.py` GHDL options (`-Wall …`) | GHDL 6.0.0 | **PASS**, 14 files, 0 warnings | `ghdl_wall.log` |
+| Regression, 50 tests (30 BFM, 20 VVC) | NVC 1.23.0 (1 fs) | **PASS** 50/50, exit 0, 8 s | `regression_nvc.log` |
+| | GHDL 6.0.0 (1 fs) | **PASS** 50/50, exit 0, 19 s | `regression_ghdl.log` |
+| | Questa Starter 2025.3 (`-t ps`) | **PASS** 50/50, exit 0, 2 min 31 s simulation (166 s wall); `compile_src.do`/`compile_bfm.do` check passed | `regression_questa.log` |
+| Minor alerts | all three | Only the declared `TB_WARNING`s (8 tests with 1, 1 with 2, 1 with 4; each summary is printed twice in the log), identical on all three; no unexpected NOTE/WARNING | regression logs |
+| VSG 3.36.0 with `uvvm.yaml` on `src/*.vhd`, `tb/maintenance_tb/*.vhd` | – | **PASS** (0 findings); 40 findings before (35 alignment from the rename, 5 comment/blank-line) | `vsg_before_fix.log`, `vsg_final.log` |
+| Workflow-document references in code (`REQ-`, `D-`, `F-`, `§`, design/spec file names) | – | **PASS**, none in `src/`, `tb/`, `test.py` | grep, this report |
+
+Runs: GHDL run 1 – `Failed to compile` for three testbench files because of warnings (F-033); after the fixes all three simulators passed in one run each. F-028 (HDLRegression `library.dat` crash) did not recur in the 4 regression runs. Questa notes: the run-time warnings `vsim-3479` (fs below the 1 ps resolution, from UVVM) and `vsim-222` (`-modelsimini` from HDLRegression) appear in every test, as for official VIPs; three intentional null-range warnings in the testbench (empty profiles).
+
+**VSG version.** The installed VSG 3.29.0 does not know rule `file_500` that `uvvm.yaml` configures (F-022). VSG 3.36.0 does; it was installed into an isolated venv (`doc/evidence/stage5_4/vsg_venv`), the system VSG is unchanged. Baseline with 3.36.0: `bitvis_vip_gpio/src` clean, its maintenance testbench 16 minor findings (`vsg_gpio_baseline.log`).
+
+Mutation checks: NOT RUN (optional).
+
+### 8.4 Feature status
+
+All 71 features are implemented and covered by the 50 test cases (Sections 3.3–7.3), with REQ-033 (crossed-wiring example) verified by the documentation example in Phase 6 – Documentation. No feature status changed in Stage 5.4.
+
+### 8.5 Open points
+
+- REQ-033 documentation example and the doc-example testbench: Phase 6 – Documentation.
+- S-7, S-8 (`doc/source/index.rst`, `vip_rotary_encoder.rst`): Phase 6 – Documentation.
+- The system VSG 3.29.0 cannot read `uvvm.yaml`; upgrading it (≥ the version that has `file_500`, 3.36.0 verified) is up to the user.
+- `sim/` held files of a Questa run of `rotation_long_run_timing` from 13:46 (one expected-style `TB_WARNING` time-stamp truncation, not from `test.py`); they were copied to `doc/evidence/stage5_4/sim_leftover_1346/` before the regression cleared `sim/`.

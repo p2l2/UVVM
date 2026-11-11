@@ -60,8 +60,8 @@ architecture struct of rotary_encoder_th is
 
   -- Records one event and arms the checker at the first one
   procedure log_event(
-    constant id     : in positive;
-    signal enc_if   : in t_rotary_encoder_if;
+    constant id      : in positive;
+    signal enc_if    : in t_rotary_encoder_if;
     variable v_armed : inout boolean) is
   begin
     shared_th_event_log.add(id, enc_if, enc_if.a'event, enc_if.b'event, enc_if.z'event);
