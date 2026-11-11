@@ -21,6 +21,8 @@ use ieee.numeric_std.all;
 library uvvm_util;
 context uvvm_util.uvvm_util_context;
 
+use work.rotary_encoder_bfm_pkg.all;
+
 --==========================================================================================
 --==========================================================================================
 package transaction_pkg is
@@ -39,11 +41,15 @@ package transaction_pkg is
     FLUSH_COMMAND_QUEUE,
     FETCH_RESULT,
     INSERT_DELAY,
-    TERMINATE_CURRENT_COMMAND
+    TERMINATE_CURRENT_COMMAND,
     -- VVC local
-    --<USER_INPUT> Expand this type with enums for BFM procedures.
-    -- Example:
-    -- TRANSMIT, RECEIVE, EXPECT
+    MOVE_EDGES,
+    MOVE_ANGLE,
+    MOVE_TO_STATE,
+    CENTER_STATE,
+    SET_ANGLE,
+    JUMP_EDGES,
+    GET_STATUS
   );
 
   -- Constants for the maximum sizes to use in this VVC. Can be modified in adaptations_pkg.
@@ -72,18 +78,37 @@ package transaction_pkg is
   -- Base transaction
   type t_base_transaction is record
     operation           : t_operation;
-    --<USER_INPUT> Insert transaction information here.
-    --address             : unsigned(C_VVC_CMD_ADDR_MAX_LENGTH-1 downto 0);
-    --data                : std_logic_vector(C_VVC_CMD_DATA_MAX_LENGTH-1 downto 0);
+    direction           : t_rotary_encoder_direction;
+    num_edges           : natural;                      -- Moves, jump
+    target_state        : std_logic_vector(1 downto 0); -- Move to state, pin levels
+    occurrence          : natural;                      -- Move to state
+    angle               : real;                         -- Angle move, set angle
+    rpm                 : real;                         -- Speed in rpm; 0.0 when given as time_per_edge
+    time_per_edge       : time;                         -- Speed as time per edge; 0 ns when given in rpm
+    profile_length      : natural;                      -- Speed profile entries; 0 for a constant speed
+    time_per_entry      : time;
+    profile_end         : t_rotary_encoder_profile_end;
+    edges               : natural;                      -- Edges emitted by a move; valid at COMPLETED or FAILED
+    status              : t_rotary_encoder_status;      -- Encoder state at the end of the command (for a status read: its
+                                                        -- result); valid at COMPLETED or FAILED
     vvc_meta            : t_vvc_meta;
     transaction_status  : t_transaction_status;
   end record t_base_transaction;
 
   constant C_BASE_TRANSACTION_SET_DEFAULT : t_base_transaction := (
     operation           => NO_OPERATION,
-    --<USER_INPUT> Insert transaction information here.
-    --address             => (others => '0'),
-    --data                => (others => '0'),
+    direction           => FORWARD,
+    num_edges           => 0,
+    target_state        => "00",
+    occurrence          => 0,
+    angle               => 0.0,
+    rpm                 => 0.0,
+    time_per_edge       => 0 ns,
+    profile_length      => 0,
+    time_per_entry      => 0 ns,
+    profile_end         => PROFILE_HOLD,
+    edges               => 0,
+    status              => (0, 0.0, "00", false, false, 0.0),
     vvc_meta            => C_VVC_META_DEFAULT,
     transaction_status  => INACTIVE
   );

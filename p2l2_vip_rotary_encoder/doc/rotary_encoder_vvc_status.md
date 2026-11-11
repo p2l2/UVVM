@@ -1,9 +1,9 @@
 # Rotary Encoder VVC – Status
 
 ## 1. Current state
-- **Phase:** **Phase 5 – Implementation and verification**, Stage 5.3 – Increments. Increments 1, 2 and 3 approved. Committed by the user: Inc 1 `8b333d5d`, Inc 2 `a482f55a`, `27e50a52`, design migration `b0a3d588`; Inc 3 not committed yet (the user commits).
-- **Increment 3 – BFM faults, timed rotation, ramp:** approved 2026-11-11 incl. D-89 to D-94. Afterwards: unused `last_rpm` removed, new test case `linear_ramp_rotation` (design rev 0.4, approved 2026-11-11) — NVC 32/32.
-- **Next step:** Stage 5.3 – Increment 4: VVC commands — skeleton adaptation, `p_motion`, executor ↔ `p_motion` handshake, moves (incl. move to state), centre state, fault events, `get_status`/`fetch_result`, terminate during a move, zero-state check, transaction info, logging; VVC test cases of Inc 4 (design §7.4); expected decisions E-4.1, E-4.2; NVC regression.
+- **Phase:** **Phase 5 – Implementation and verification**, Stage 5.3 – Increments. Increments 1–3 approved and committed by the user (Inc 1 `8b333d5d`, Inc 2 `a482f55a`/`27e50a52`, design migration `b0a3d588`, Inc 3 `3e4a08cf`).
+- **Increment 4 – VVC commands:** approved 2026-11-11 together with spec rev 0.13 (glitch removed, D-100) and design rev 0.5 (transaction info with the command's effect, D-98; D-95 to D-97, D-99). NVC 36/36 PASS. Commit by the user pending.
+- **Next step:** Stage 5.3 – Increment 5: VVC rotation — start/speed change/stop, profiles, rejects during a rotation, terminate/flush during a rotation (`halt_req` in the interpreter, D-95), per-edge configuration incl. invalid values (`p_motion` passes the current config for rotations), `stop_when_idle_severity` (SK-8); VVC test cases of Inc 5 (design §7.4); NVC regression.
 - **Last updated:** 2026-11-11
 
 ## 2. Workspace
@@ -41,10 +41,10 @@
 ## 5. Artifacts
 | Artifact | Path | Rev | Status |
 |---|---|---|---|
-| Specification | `doc/rotary_encoder_spec.md` | 0.12 | Approved 2026-11-11 |
-| Design document | `doc/rotary_encoder_vvc_design.md` | 0.4 | D-86 to D-94 approved 2026-11-11 (REQ-072, 075, 110 changed); rev 0.4: test case `linear_ramp_rotation`. 72 features, decision log D-1…D-94 |
-| Implementation report | `doc/rotary_encoder_vvc_implementation_report.md` | 0.9 | Stages 5.1, 5.2, Inc 1 (§3), Inc 2 (§4), Inc 3 (§5) |
-| Findings log | `doc/rotary_encoder_vvc_findings.md` | – | 25 entries |
+| Specification | `doc/rotary_encoder_spec.md` | 0.13 | Approved 2026-11-11 (glitch removed from A-12) |
+| Design document | `doc/rotary_encoder_vvc_design.md` | 0.5 | Rev 0.4 approved 2026-11-11. Rev 0.5 (Inc 4: D-95…D-99; glitch removed, D-100; 30 BFM / 20 VVC = 50 test cases) approved 2026-11-11. 71 features, decision log D-1…D-100 |
+| Implementation report | `doc/rotary_encoder_vvc_implementation_report.md` | 0.10 | Stages 5.1, 5.2, Inc 1 (§3), Inc 2 (§4), Inc 3 (§5), Inc 4 (§6) |
+| Findings log | `doc/rotary_encoder_vvc_findings.md` | – | 28 entries |
 | Documentation | – | – | not started |
 | Audit | – | – | not started |
 
@@ -52,8 +52,8 @@
 | Phase / stage | Date | Approval |
 |---|---|---|
 | Startup gate – workspace and UVVM baseline | 2026-10-21 | Confirmed |
-| Phase 1 – Protocol specification | 2026-11-11 | rev 0.12 approved |
-| Phase 2 – VVC features | 2026-11-11 | approved (design rev 0.2, REQ-086 added); change after approval rev 0.3 (REQ-072, 075, 110) approved 2026-11-11 |
+| Phase 1 – Protocol specification | 2026-11-11 | rev 0.12 approved; change after approval rev 0.13 (glitch removed) approved 2026-11-11 |
+| Phase 2 – VVC features | 2026-11-11 | approved (design rev 0.2, REQ-086 added); change after approval rev 0.3 (REQ-072, 075, 110) approved 2026-11-11; rev 0.5 (REQ-072 removed) approved 2026-11-11 |
 | Phase 3 – VVC architecture | 2026-11-10 | approved (now design §4–§6) |
 | Phase 4 – Testbench architecture | 2026-11-10 | approved (now design §7–§9) |
 | Document migration to `_vvc_design.md` | 2026-11-11 | approved |
@@ -61,13 +61,14 @@
 | Stage 5.2 – First testbench and regression script | 2026-10-27 | approved, `1418078c` |
 | Stage 5.3 – Increment 1: BFM core | 2026-11-09 | approved, `8b333d5d` |
 | Stage 5.3 – Increment 2: BFM signal options | 2026-11-10 | approved, `a482f55a`, `27e50a52` |
-| Stage 5.3 – Increment 3: BFM faults, timed rotation, ramp | 2026-11-11 | approved (incl. D-89 to D-94); commit by the user pending |
+| Stage 5.3 – Increment 3: BFM faults, timed rotation, ramp | 2026-11-11 | approved (incl. D-89 to D-94), `3e4a08cf` |
+| Stage 5.3 – Increment 4: VVC commands | 2026-11-11 | approved (with spec rev 0.13, design rev 0.5); commit by the user pending |
 
 ## 7. Latest checks
-- Inc 3 (2026-11-11): NVC PASS 32 tests (31 BFM, 1 VVC), `doc/evidence/inc3/regression_nvc_ramp_rotation.log`. GHDL/Questa NOT RUN (Stage 5.4). VSG BLOCKED (F-022)
+- Inc 4 (2026-11-11): NVC PASS 36 tests (30 BFM, 6 VVC) after the glitch removal, `doc/evidence/inc4/regression_nvc.log`. One earlier run crashed in HDLRegression after all tests passed (F-028, not reproduced). GHDL/Questa NOT RUN (Stage 5.4). VSG BLOCKED (F-022)
 
 ## 8. Open items
-- REQ-086 status read-back: BFM part done (Inc 3), VVC part in Inc 4, rotation part in Inc 5
-- `rotary_encoder_run_motion` rotation/profile path (`MOTION_PROFILE_PASS`, 0 rpm wait) is implemented but only tested through the VVC (Inc 5)
-- Inc 3–5 and Stage 5.4 expected decisions and notes: design §8 (E-3.1 … E-5.3, E-2.2, F-021, F-022, `p_motion` request detection by index)
+- REQ-086 rotation part, REQ-003/083 rotation parts, REQ-085 rotation logging: Inc 5
+- `rotary_encoder_run_motion` rotation/profile path is implemented but only tested through the VVC (Inc 5)
+- Inc 5 and Stage 5.4 expected decisions and notes: design §8 (E-5.1 … E-5.3, E-2.2, F-021, F-022), report §6.6; F-028 watch in Stage 5.4
 - REQ-033 crossed-wiring example: verified by the documentation example in Phase 6 – Documentation

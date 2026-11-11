@@ -412,18 +412,6 @@ package rotary_encoder_bfm_pkg is
     constant config       : in    t_rotary_encoder_bfm_config := C_ROTARY_ENCODER_BFM_CONFIG_DEFAULT
   );
 
-  -- Pulse of width on A or B, then back to the previous level. A stuck output does not pulse.
-  procedure rotary_encoder_glitch(
-    constant channel      : in    t_rotary_encoder_channel;
-    constant width        : in    time;
-    variable state        : inout t_rotary_encoder_state;
-    constant msg          : in    string;
-    signal   encoder_if   : inout t_rotary_encoder_if;
-    constant scope        : in    string                      := C_BFM_SCOPE;
-    constant msg_id_panel : in    t_msg_id_panel              := shared_msg_id_panel;
-    constant config       : in    t_rotary_encoder_bfm_config := C_ROTARY_ENCODER_BFM_CONFIG_DEFAULT
-  );
-
   ---------------------------------------------------------------------------------
   -- Low-level motion engine. Used by the VVC; testbenches normally use the procedures above or the VVC.
   -- Calling sequence: set_motion, then run_motion in a loop in the same time step; halt_motion to stop.
@@ -2272,63 +2260,6 @@ package body rotary_encoder_bfm_pkg is
     place_shaft(state, encoder_if, v_position, v_offset, C_PROC_CALL, msg, scope, msg_id_panel, config);
   end procedure;
 
-  procedure rotary_encoder_glitch(
-    constant channel      : in    t_rotary_encoder_channel;
-    constant width        : in    time;
-    variable state        : inout t_rotary_encoder_state;
-    constant msg          : in    string;
-    signal   encoder_if   : inout t_rotary_encoder_if;
-    constant scope        : in    string                      := C_BFM_SCOPE;
-    constant msg_id_panel : in    t_msg_id_panel              := shared_msg_id_panel;
-    constant config       : in    t_rotary_encoder_bfm_config := C_ROTARY_ENCODER_BFM_CONFIG_DEFAULT
-  ) is
-    constant C_PROC_CALL : string := "rotary_encoder_glitch(" & to_upper(to_string(channel)) & ", " & to_string(width, ns) & ")";
-    variable v_stuck     : std_logic;
-    variable v_level     : std_logic;
-    variable v_settled   : boolean;
-  begin
-    if not is_command_valid(state, false, C_PROC_CALL, msg, scope, config) then
-      return;
-    elsif state.motion_active then
-      alert(TB_ERROR, C_PROC_CALL & "=> Failed. Not allowed while a motion is active." & add_msg_delimiter(msg), scope);
-      return;
-    elsif width <= 0 ns then
-      alert(TB_ERROR, C_PROC_CALL & "=> Failed. width must be positive, was " & to_string(width, ns) & "." &
-                      add_msg_delimiter(msg), scope);
-      return;
-    end if;
-    apply_stuck(state, encoder_if, config);
-    settle_bounce(state, encoder_if, v_settled);
-    if v_settled then
-      wait for 0 ns; -- The bounced channel settles one delta before the pulse
-    end if;
-    if channel = CHANNEL_A then
-      v_stuck := config.a_stuck;
-      v_level := state.ab(1);
-    else
-      v_stuck := config.b_stuck;
-      v_level := state.ab(0);
-    end if;
-    if v_stuck /= C_NOT_STUCK then
-      -- A stuck output cannot pulse
-      wait for width;
-      log(config.id_for_bfm, C_PROC_CALL & "=> The output is stuck at '" & to_string(v_stuck) & "': no pulse. Position " &
-                             to_string(state.position) & "." & add_msg_delimiter(msg), scope, msg_id_panel);
-      return;
-    end if;
-    if channel = CHANNEL_A then
-      encoder_if.a <= not v_level;
-      wait for width;
-      encoder_if.a <= v_level;
-    else
-      encoder_if.b <= not v_level;
-      wait for width;
-      encoder_if.b <= v_level;
-    end if;
-    log(config.id_for_bfm, C_PROC_CALL & "=> Pulse done. Position " & to_string(state.position) & "." & add_msg_delimiter(msg),
-        scope, msg_id_panel);
-  end procedure;
-
   procedure rotary_encoder_set_motion(
     constant motion       : in    t_rotary_encoder_motion;
     variable state        : inout t_rotary_encoder_state;
@@ -2363,6 +2294,8 @@ package body rotary_encoder_bfm_pkg is
     if state.motion_active then
       -- The signal configuration of this call (re-read by the VVC at every call), or the last valid one
       resolve_signal_config(state, config, v_config, C_PROC_CALL, msg, scope);
+      -- A changed stuck setting shows at once: at the start of a motion and before the next edge
+      apply_stuck(state, encoder_if, v_config);
     end if;
     while state.motion_active loop
       next_motion_event(state, v_config.jitter, v_time, v_next);

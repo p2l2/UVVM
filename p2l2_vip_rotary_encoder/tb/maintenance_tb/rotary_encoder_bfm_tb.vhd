@@ -167,9 +167,7 @@ architecture func of rotary_encoder_bfm_tb is
   constant C_SET_ANGLE_30      : real           := 30.0;  -- Position 7
   constant C_SET_ANGLE_30_POS  : integer        := 7;
 
-  -- glitch, invalid_fault_event
-  constant C_GLITCH_WIDTH      : time        := 30 ns;
-  constant C_BAD_WIDTHS_GLITCH : time_vector := (0 ns, -1 ns);
+  -- invalid_fault_event
   constant C_BAD_ANGLES        : real_vector := (real'high, real'low);
 
   -- edge_offsets: time form 1 us per edge; offsets in electrical degrees
@@ -430,15 +428,6 @@ begin
     begin
       show_config(v_config);
       rotary_encoder_set_angle(degrees, v_state, "set angle", enc_if, config => v_config);
-      update_debug;
-    end procedure;
-
-    procedure glitch(
-      constant channel : in t_rotary_encoder_channel;
-      constant width   : in time) is
-    begin
-      show_config(v_config);
-      rotary_encoder_glitch(channel, width, v_state, "glitch", enc_if, config => v_config);
       update_debug;
     end procedure;
 
@@ -1740,52 +1729,9 @@ begin
       check_checker(shared_th_event_log, C_ID, C_EDGES_PER_REV, "revolution after set angle");
 
     --============================================================================================================================
-    elsif GC_TESTCASE = "glitch" then
-      -- A pulse on one channel, back to the previous level; position and state unchanged
-      for c in t_rotary_encoder_channel loop
-        log_step("Glitch on " & to_string(c));
-        init_encoder(C_DEFAULT);
-        v_t_start := now;
-        glitch(c, C_GLITCH_WIDTH);
-        check_duration(C_GLITCH_WIDTH, 0 ns, "glitch");
-        wait_for_logger;
-        check_value(shared_th_event_log.count(C_ID), 2, ERROR, "two entries", C_SCOPE, ID_SEQUENCER_SUB);
-        check_value(num_events(c), 2, ERROR, "both on " & to_string(c), C_SCOPE, ID_SEQUENCER_SUB);
-        check_event_time(0, v_t_start, 0 ns, "pulse start");
-        check_event_time(1, v_t_start + C_GLITCH_WIDTH, 0 ns, "pulse end");
-        check_value(std_logic_vector'(enc_if.a & enc_if.b), C_DEFAULT.zero_state, MATCH_EXACT, ERROR, "back to the previous state",
-                    C_SCOPE, msg_id => ID_SEQUENCER_SUB);
-        check_status(0, 0.0, "position unchanged");
-        check_checker(shared_th_event_log, C_ID, 0, "glitch decodes as one edge forth and back");
-        shared_th_event_log.clear(C_ID);
-        edges(FORWARD, C_EDGES_PER_CYCLE, C_TPE);
-        check_checker(shared_th_event_log, C_ID, C_EDGES_PER_CYCLE, "move after the glitch");
-      end loop;
-
-      log_step("Glitch on a stuck channel: no pulse, no alert, completes after the width");
-      v_bad_config         := C_DEFAULT;
-      v_bad_config.a_stuck := '0';
-      init_encoder(v_bad_config);
-      v_alerts  := get_alert_counter(TB_WARNING) + get_alert_counter(TB_ERROR);
-      v_t_start := now;
-      glitch(CHANNEL_A, C_GLITCH_WIDTH);
-      check_duration(C_GLITCH_WIDTH, 0 ns, "glitch on a stuck channel");
-      wait_for_logger;
-      check_value(shared_th_event_log.count(C_ID), 0, ERROR, "no event", C_SCOPE, ID_SEQUENCER_SUB);
-      check_value(get_alert_counter(TB_WARNING) + get_alert_counter(TB_ERROR) - v_alerts, 0, ERROR, "no alert", C_SCOPE,
-                  ID_SEQUENCER_SUB);
-
-    --============================================================================================================================
     elsif GC_TESTCASE = "invalid_fault_event" then
-      log_step("Invalid glitch width");
-      init_encoder(C_DEFAULT);
-      for i in C_BAD_WIDTHS_GLITCH'range loop
-        begin_reject("glitch width " & to_string(C_BAD_WIDTHS_GLITCH(i), ns));
-        glitch(CHANNEL_A, C_BAD_WIDTHS_GLITCH(i));
-        end_reject("glitch width " & to_string(C_BAD_WIDTHS_GLITCH(i), ns));
-      end loop;
-
       log_step("Set angle not finite");
+      init_encoder(C_DEFAULT);
       for i in C_BAD_ANGLES'range loop
         begin_reject("set angle " & real'image(C_BAD_ANGLES(i)));
         set_angle(C_BAD_ANGLES(i));

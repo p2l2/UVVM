@@ -3,8 +3,8 @@
 | Item | Value |
 |---|---|
 | Document | `p2l2_vip_rotary_encoder/doc/rotary_encoder_spec.md` |
-| Revision | 0.12 |
-| Status | Rev 0.12 approved 2026-11-11 (authoritative source for the VVC features) |
+| Revision | 0.13 |
+| Status | Rev 0.13 approved 2026-11-11 (authoritative source for the VVC features) |
 | Route | A – drafted baseline spec (de-facto protocol, no single formal standard) |
 | Target | Generic: mechanical rotary encoders (EC11-style knobs) and optical/magnetic incremental encoders with A/B(/Z) outputs. Detents are not modelled (§9) |
 
@@ -26,6 +26,7 @@ Items marked **[A-nn]** are *assumptions*: conventions chosen for this baseline,
 | 0.10 | 2026-11-09 | A/B polarity inversion removed; all states are pin levels (Q-15) |
 | 0.11 | 2026-11-10 | Bounce example in A-07 corrected to datasheet practice |
 | 0.12 | 2026-11-10 | VVC-specific content moved to the VVC design document (identifier mapping, configuration defaults, alert severity, helper functions); withdrawn and obsolete entries removed. No change to the protocol. Approved 2026-11-11 |
+| 0.13 | 2026-11-11 | Glitch removed from the fault events (A-12): bounce, jitter and edge offsets cover short pulses and states. Requested and approved by the user 2026-11-11 |
 
 ---
 
@@ -153,9 +154,7 @@ A device fault is a property of the part. It is configured, stays active until i
   - a **jump** of N edges in a given direction from the angle at the time of the request, in zero time; the sub-edge fraction is kept.
 
   For both, the outputs change directly from the old to the new state, in one step, and Z takes the level of the new state without a pulse for skipped positions. What a decoder sees depends on the edge distance N between the old and the new position: N mod 4 = 2 is an illegal transition (A and B change at the same time); N mod 4 = 0 changes nothing on A/B but moves the position (lost cycles, as with missed samples at too high a speed); N mod 4 = 1 or 3 is one legal edge, which for N mod 4 = 3 points in the opposite direction. If the new angle lies exactly on a boundary, the shaft is in the state on the side of the old angle (it has not crossed the boundary).
-  - a **glitch**: a pulse on A or B of configurable width, after which the output returns to its previous value. The position does not change.
-
-  Edges that are too close for a decoder need no special request: they are an ordinary move with a high speed or a small `time_per_edge`.
+  Edges that are too close for a decoder need no special request: they are an ordinary move with a high speed or a small `time_per_edge`. A short pulse on one channel (§4.3) is not a separate fault event either: contact bounce (A-07), edge jitter (A-05) and edge offsets (A-25) produce the short states and pulses a decoder must handle.
 
 ### 4.6 Movement by angle
 
@@ -277,7 +276,7 @@ Mechanical encoders use sliding contacts. When a channel changes, it may toggle 
 | A-08 | Bounce toggle placement random (seeded) or even |
 | A-10 | Index width 1–4 states, starting at the index state; index position `p_idx` selects the index cycle (`p_idx … p_idx+3`); index state independent of the zero state; further states follow the index state in the order `00 → 10 → 11 → 01`, may lie outside the index cycle |
 | A-11 | *(Informative, §8)* A decoder tracks position in edges; cycles derived |
-| A-12 | Fault events on request, in zero time: set angle (absolute) and jump (N edges relative; illegal transition for N mod 4 = 2); glitch |
+| A-12 | Fault events on request, in zero time: set angle (absolute) and jump (N edges relative; illegal transition for N mod 4 = 2) |
 | A-13 | Movement by angle with sub-edge angle tracking, no rounding drift; angle 0° is the centre of the zero state (A-06), independent of the index; a shaft exactly on a boundary is in the state it moved into |
 | A-16 | Start angle (position of the knob/motor at simulation start); start state, position and Z follow from it, without edges |
 | A-17 | Continuous rotation: starts at the current angle with a signed rpm (or `time_per_edge` and direction), turns until stopped; 0 rpm legal |
@@ -304,7 +303,7 @@ Mechanical encoders use sliding contacts. When a channel changes, it may toggle 
 | Q-05 | Continuous rotation (start at a speed, change it, stop) needed? | Yes, new §4.7 ([A-17] to [A-20]) (2026-10-27) |
 | Q-06 | Non-constant speed (e.g. motor start-up under load)? | Yes, as a speed profile for rotations only, with end behaviour per call and a linear ramp (§4.7.1, [A-21], [A-22]) (2026-10-27) |
 | Q-07 | `time_per_edge` as the speed unit is abstract: the real speed depends on `cycles_per_rev`. | Speed in rpm, signed for rotations; `time_per_edge` kept as an alternative form for exact edge spacing; profiles over time (§4.4, [A-23], [A-24], §4.7.1) (2026-10-27) |
-| Q-08 | One fixed illegal-transition request covers one symptom only; how are device faults such as a misaligned sensor modelled? | Device faults by configuration (edge offsets A-25, stuck channels A-26), fault events by request (set angle and jump replace the illegal transition; glitch kept) (§4.5) (2026-10-27) |
+| Q-08 | One fixed illegal-transition request covers one symptom only; how are device faults such as a misaligned sensor modelled? | Device faults by configuration (edge offsets A-25, stuck channels A-26), fault events by request (set angle and jump replace the illegal transition) (§4.5) (2026-10-27) |
 | Q-09 | Detents and snapping make the model and its API too complex (seen in Stage 5.3 Increment 1). Keep them? | No, removed completely in rev 0.7; detents are out of scope (§9). The zero state at 0° stays configurable (A-06, manufacturers differ) and the start angle stays (A-16) (2026-10-28) |
 | Q-10 | What counts as 0°: the zero state or the index state? How is the index cycle located when they differ? | 0° is the centre of the zero state, with or without an index (A-13). The index position selects the index cycle `p_idx … p_idx+3`; the index state is independent of the zero state; gated ½ may extend past the index cycle. Checked against an AMT11-style figure (Z at `00`) (§6, A-10) (2026-11-09) |
 | Q-12 | Are there index widths other than ¼, ½ and 1 cycle (e.g. ¾)? | Yes (e.g. AS5047P "3 LSB" = 3 states). The index mode is replaced by an index width of 1 to 4 states, starting at the index state and following the pin order `00 → 10 → 11 → 01`. True ungated Z with free edges is out of scope (§9) (§6, A-10) (2026-11-09) |

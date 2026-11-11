@@ -59,7 +59,6 @@ package vvc_methods_pkg is
     result_queue_count_threshold_severity : t_alert_level;     -- DEPRECATED: will be removed in v3. Use entity generic constants instead.
     bfm_config                            : t_bfm_config;      -- Configuration for the BFM. See BFM quick reference.
     msg_id_panel                          : t_msg_id_panel;    -- VVC dedicated message ID panel.
-    unwanted_activity_severity            : t_alert_level;     -- Severity of alert to be initiated if unwanted activity on the DUT outputs is detected.
   end record t_vvc_config;
 
   type t_vvc_config_array is array (natural range <>) of t_vvc_config;
@@ -73,8 +72,7 @@ package vvc_methods_pkg is
     result_queue_count_threshold          => C_RESULT_QUEUE_COUNT_THRESHOLD,
     result_queue_count_threshold_severity => C_RESULT_QUEUE_COUNT_THRESHOLD_SEVERITY,
     bfm_config                            => C_ROTARY_ENCODER_BFM_CONFIG_DEFAULT,
-    msg_id_panel                          => C_VVC_MSG_ID_PANEL_DEFAULT,
-    unwanted_activity_severity            => C_UNWANTED_ACTIVITY_SEVERITY
+    msg_id_panel                          => C_VVC_MSG_ID_PANEL_DEFAULT
   );
 
   type t_vvc_status is record
@@ -102,30 +100,118 @@ package vvc_methods_pkg is
   --   actual BFM execution.
   --==========================================================================================
 
-  --<USER_INPUT> Please insert the VVC procedure declarations here
-  --Example with single VVC channel:
-  -- procedure rotary_encoder_write (
-  --   signal   VVCT                : inout t_vvc_target_record;
-  --   constant vvc_instance_idx    : in    integer;
-  --   constant addr                : in    unsigned;
-  --   constant data                : in    std_logic_vector;
-  --   constant msg                 : in    string;
-  --   constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
-  --   constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
-  -- );
+  -- Moves. The speed is given in rpm (> 0.0) or as time_per_edge (> 0 ns). A move completes when the shaft is at rest at
+  -- its end.
+  procedure rotary_encoder_move_edges(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant direction           : in    t_rotary_encoder_direction;
+    constant num_edges           : in    natural;
+    constant rpm                 : in    real;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  );
 
-  --Example with multiple VVC channels:
-  -- procedure rotary_encoder_read (
-  --   signal   VVCT                : inout t_vvc_target_record;
-  --   constant vvc_instance_idx    : in    integer;
-  --   constant channel             : in    t_channel;
-  --   constant addr                : in    unsigned;
-  --   constant data                : in    std_logic_vector;
-  --   constant msg                 : in    string;
-  --   constant alert_level         : in    t_alert_level  := ERROR;
-  --   constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
-  --   constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
-  -- );
+  procedure rotary_encoder_move_edges(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant direction           : in    t_rotary_encoder_direction;
+    constant num_edges           : in    natural;
+    constant time_per_edge       : in    time;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  );
+
+  -- Turns the shaft by angle degrees (>= 0.0) and ends exactly there
+  procedure rotary_encoder_move_angle(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant direction           : in    t_rotary_encoder_direction;
+    constant angle               : in    real;
+    constant rpm                 : in    real;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  );
+
+  procedure rotary_encoder_move_angle(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant direction           : in    t_rotary_encoder_direction;
+    constant angle               : in    real;
+    constant time_per_edge       : in    time;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  );
+
+  -- Turns the shaft to the centre of the occurrence-th following state (>= 1) equal to target_state (pin levels). The
+  -- state the shaft is in when the command is executed is never counted.
+  procedure rotary_encoder_move_to_state(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant direction           : in    t_rotary_encoder_direction;
+    constant target_state        : in    std_logic_vector(1 downto 0);
+    constant occurrence          : in    natural;
+    constant rpm                 : in    real;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  );
+
+  procedure rotary_encoder_move_to_state(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant direction           : in    t_rotary_encoder_direction;
+    constant target_state        : in    std_logic_vector(1 downto 0);
+    constant occurrence          : in    natural;
+    constant time_per_edge       : in    time;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  );
+
+  -- Places the shaft at the centre of the state it is in, in zero time, without an output event
+  procedure rotary_encoder_center_state(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  );
+
+  -- Fault events. set_angle: to an absolute angle in degrees, in zero time. jump_edges: num_edges from the angle at
+  -- execution time, in zero time.
+  procedure rotary_encoder_set_angle(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant angle               : in    real;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  );
+
+  procedure rotary_encoder_jump_edges(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant direction           : in    t_rotary_encoder_direction;
+    constant num_edges           : in    natural;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  );
+
+
+  -- Stores the t_rotary_encoder_status at execution time in the result queue; read it with fetch_result()
+  procedure rotary_encoder_get_status(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  );
 
   --==========================================================================================
   -- Transaction info methods
@@ -144,6 +230,7 @@ package vvc_methods_pkg is
     variable vvc_transaction_info_group   : inout t_transaction_group;
     constant vvc_cmd                      : in t_vvc_cmd_record;
     constant vvc_result                   : in t_vvc_result;
+    constant edges                        : in natural;
     constant transaction_status           : in t_transaction_status;
     constant scope                        : in string := C_VVC_CMD_SCOPE_DEFAULT
   );
@@ -161,66 +248,263 @@ package body vvc_methods_pkg is
   -- Methods dedicated to this VVC
   --==========================================================================================
 
-  --<USER_INPUT> Please insert the VVC procedure implementations here.
-  -- These procedures will be used to forward commands to the VVC executor, which will
-  -- call the corresponding BFM procedures.
-  -- Example using single channel:
-  -- procedure rotary_encoder_write(
-  --   signal   VVCT                : inout t_vvc_target_record;
-  --   constant vvc_instance_idx    : in    integer;
-  --   constant addr                : in    unsigned;
-  --   constant data                : in    std_logic_vector;
-  --   constant msg                 : in    string;
-  --   constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
-  --   constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
-  -- ) is
-  --   constant C_PROC_NAME : string := "rotary_encoder_write";
-  --   constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx)  -- First part common for all
-  --            & ", " & to_string(addr, HEX, KEEP_LEADING_0, INCL_RADIX) & ", " & to_string(data, HEX, KEEP_LEADING_0, INCL_RADIX) & ")";
-  --   variable v_normalised_addr    : unsigned(C_VVC_CMD_ADDR_MAX_LENGTH-1 downto 0) :=
-  --            normalize_and_check(addr, shared_vvc_cmd.addr, ALLOW_WIDER_NARROWER, "addr", "shared_vvc_cmd.addr", C_PROC_CALL & " called with too wide addr. " & msg);
-  --   variable v_normalised_data    : std_logic_vector(C_VVC_CMD_DATA_MAX_LENGTH-1 downto 0) :=
-  --            normalize_and_check(data, shared_vvc_cmd.data, ALLOW_WIDER_NARROWER, "data", "shared_vvc_cmd.data", C_PROC_CALL & " called with too wide data. " & msg);
-  --   variable v_msg_id_panel : t_msg_id_panel := shared_msg_id_panel;
-  -- begin
-  -- -- Create command by setting common global 'VVCT' signal record and dedicated VVC 'shared_vvc_cmd' record
-  -- -- locking semaphore in set_general_target_and_command_fields to gain exclusive right to VVCT and shared_vvc_cmd
-  -- -- semaphore gets unlocked in await_cmd_from_sequencer of the targeted VVC
-  --   set_general_target_and_command_fields(VVCT, vvc_instance_idx, C_PROC_CALL, msg, QUEUED, WRITE);
-  --   shared_vvc_cmd.addr                := v_normalised_addr;
-  --   shared_vvc_cmd.data                := v_normalised_data;
-  --   shared_vvc_cmd.parent_msg_id_panel := parent_msg_id_panel;
-  --   if parent_msg_id_panel /= C_UNUSED_MSG_ID_PANEL then
-  --     v_msg_id_panel := parent_msg_id_panel;
-  --   end if;
-  --   send_command_to_vvc(VVCT, std.env.resolution_limit, scope, v_msg_id_panel);
-  -- end procedure;
+  -- Decimals of reals in proc_call strings
+  constant C_REAL_DIGITS   : natural := 4;
+  -- Larger reals are printed with 'image (to_string(real, digits) fails for them on some simulators)
+  constant C_MAX_PRINTABLE : real    := 1.0e15;
 
-  -- Example using multiple channels:
-  -- procedure rotary_encoder_receive (
-  --   signal   VVCT                : inout t_vvc_target_record;
-  --   constant vvc_instance_idx    : in    integer;
-  --   constant channel             : in    t_channel;
-  --   constant msg                 : in    string;
-  --   constant alert_level         : in    t_alert_level  := ERROR;
-  --   constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
-  --   constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
-  -- ) is
-  --   constant C_PROC_NAME : string := "rotary_encoder_receive";
-  --   constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx, channel) & ")";
-  --   variable v_msg_id_panel : t_msg_id_panel := shared_msg_id_panel;
-  -- begin
-  -- -- Create command by setting common global 'VVCT' signal record and dedicated VVC 'shared_vvc_cmd' record
-  -- -- locking semaphore in set_general_target_and_command_fields to gain exclusive right to VVCT and shared_vvc_cmd
-  -- -- semaphore gets unlocked in await_cmd_from_sequencer of the targeted VVC
-  --   set_general_target_and_command_fields(VVCT, vvc_instance_idx, channel, C_PROC_CALL, msg, QUEUED, RECEIVE);
-  --   shared_vvc_cmd.alert_level         := alert_level;
-  --   shared_vvc_cmd.parent_msg_id_panel := parent_msg_id_panel;
-  --   if parent_msg_id_panel /= C_UNUSED_MSG_ID_PANEL then
-  --     v_msg_id_panel := parent_msg_id_panel;
-  --   end if;
-  --   send_command_to_vvc(VVCT, std.env.resolution_limit, scope, v_msg_id_panel);
-  -- end procedure;
+  function real_image(
+    constant value : in real
+  ) return string is
+  begin
+    if abs(value) < C_MAX_PRINTABLE then
+      return to_string(value, C_REAL_DIGITS);
+    else
+      return real'image(value);
+    end if;
+  end function;
+
+  -- Queues a command; the operation's parameters are in motion
+  procedure send_command(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant proc_call           : in    string;
+    constant operation           : in    t_operation;
+    constant motion              : in    t_rotary_encoder_motion;
+    constant msg                 : in    string;
+    constant scope               : in    string;
+    constant parent_msg_id_panel : in    t_msg_id_panel
+  ) is
+    variable v_msg_id_panel : t_msg_id_panel := shared_msg_id_panel;
+  begin
+    -- Create command by setting common global 'VVCT' signal record and dedicated VVC 'shared_vvc_cmd' record
+    -- locking semaphore in set_general_target_and_command_fields to gain exclusive right to VVCT and shared_vvc_cmd
+    -- semaphore gets unlocked in await_cmd_from_sequencer of the targeted VVC
+    set_general_target_and_command_fields(VVCT, vvc_instance_idx, proc_call, msg, QUEUED, operation);
+    shared_vvc_cmd.motion              := motion;
+    shared_vvc_cmd.parent_msg_id_panel := parent_msg_id_panel;
+    if parent_msg_id_panel /= C_UNUSED_MSG_ID_PANEL then
+      v_msg_id_panel := parent_msg_id_panel;
+    end if;
+    send_command_to_vvc(VVCT, std.env.resolution_limit, scope, v_msg_id_panel);
+  end procedure;
+
+  -- A move of kind in direction; the remaining motion fields are set by the caller
+  function move_motion(
+    constant kind      : in t_rotary_encoder_motion_kind;
+    constant direction : in t_rotary_encoder_direction
+  ) return t_rotary_encoder_motion is
+    variable v_motion : t_rotary_encoder_motion := C_ROTARY_ENCODER_MOTION_DEFAULT;
+  begin
+    v_motion.kind      := kind;
+    v_motion.direction := direction;
+    return v_motion;
+  end function;
+
+  -- motion with the speed in rpm
+  function with_rpm(
+    constant motion : in t_rotary_encoder_motion;
+    constant rpm    : in real
+  ) return t_rotary_encoder_motion is
+    variable v_motion : t_rotary_encoder_motion := motion;
+  begin
+    v_motion.speed_form := SPEED_RPM;
+    v_motion.rpm        := rpm;
+    return v_motion;
+  end function;
+
+  -- motion with the speed as time_per_edge
+  function with_time_per_edge(
+    constant motion        : in t_rotary_encoder_motion;
+    constant time_per_edge : in time
+  ) return t_rotary_encoder_motion is
+    variable v_motion : t_rotary_encoder_motion := motion;
+  begin
+    v_motion.speed_form    := SPEED_TIME_PER_EDGE;
+    v_motion.time_per_edge := time_per_edge;
+    return v_motion;
+  end function;
+
+  procedure rotary_encoder_move_edges(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant direction           : in    t_rotary_encoder_direction;
+    constant num_edges           : in    natural;
+    constant rpm                 : in    real;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  ) is
+    constant C_PROC_NAME : string := "rotary_encoder_move_edges";
+    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_upper(to_string(direction)) &
+                                     ", " & to_string(num_edges) & ", " & real_image(rpm) & " rpm)";
+    variable v_motion    : t_rotary_encoder_motion := with_rpm(move_motion(MOTION_EDGES, direction), rpm);
+  begin
+    v_motion.num := num_edges;
+    send_command(VVCT, vvc_instance_idx, C_PROC_CALL, MOVE_EDGES, v_motion, msg, scope, parent_msg_id_panel);
+  end procedure;
+
+  procedure rotary_encoder_move_edges(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant direction           : in    t_rotary_encoder_direction;
+    constant num_edges           : in    natural;
+    constant time_per_edge       : in    time;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  ) is
+    constant C_PROC_NAME : string := "rotary_encoder_move_edges";
+    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_upper(to_string(direction)) &
+                                     ", " & to_string(num_edges) & ", " & to_string(time_per_edge, ns) & ")";
+    variable v_motion    : t_rotary_encoder_motion := with_time_per_edge(move_motion(MOTION_EDGES, direction), time_per_edge);
+  begin
+    v_motion.num := num_edges;
+    send_command(VVCT, vvc_instance_idx, C_PROC_CALL, MOVE_EDGES, v_motion, msg, scope, parent_msg_id_panel);
+  end procedure;
+
+  procedure rotary_encoder_move_angle(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant direction           : in    t_rotary_encoder_direction;
+    constant angle               : in    real;
+    constant rpm                 : in    real;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  ) is
+    constant C_PROC_NAME : string := "rotary_encoder_move_angle";
+    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_upper(to_string(direction)) &
+                                     ", " & real_image(angle) & " deg, " & real_image(rpm) & " rpm)";
+    variable v_motion    : t_rotary_encoder_motion := with_rpm(move_motion(MOTION_ANGLE, direction), rpm);
+  begin
+    v_motion.angle := angle;
+    send_command(VVCT, vvc_instance_idx, C_PROC_CALL, MOVE_ANGLE, v_motion, msg, scope, parent_msg_id_panel);
+  end procedure;
+
+  procedure rotary_encoder_move_angle(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant direction           : in    t_rotary_encoder_direction;
+    constant angle               : in    real;
+    constant time_per_edge       : in    time;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  ) is
+    constant C_PROC_NAME : string := "rotary_encoder_move_angle";
+    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_upper(to_string(direction)) &
+                                     ", " & real_image(angle) & " deg, " & to_string(time_per_edge, ns) & ")";
+    variable v_motion    : t_rotary_encoder_motion := with_time_per_edge(move_motion(MOTION_ANGLE, direction), time_per_edge);
+  begin
+    v_motion.angle := angle;
+    send_command(VVCT, vvc_instance_idx, C_PROC_CALL, MOVE_ANGLE, v_motion, msg, scope, parent_msg_id_panel);
+  end procedure;
+
+  procedure rotary_encoder_move_to_state(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant direction           : in    t_rotary_encoder_direction;
+    constant target_state        : in    std_logic_vector(1 downto 0);
+    constant occurrence          : in    natural;
+    constant rpm                 : in    real;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  ) is
+    constant C_PROC_NAME : string := "rotary_encoder_move_to_state";
+    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_upper(to_string(direction)) &
+                                     ", " & to_string(target_state) & ", " & to_string(occurrence) & ", " & real_image(rpm) & " rpm)";
+    variable v_motion    : t_rotary_encoder_motion := with_rpm(move_motion(MOTION_TO_STATE, direction), rpm);
+  begin
+    v_motion.target_state := target_state;
+    v_motion.num          := occurrence;
+    send_command(VVCT, vvc_instance_idx, C_PROC_CALL, MOVE_TO_STATE, v_motion, msg, scope, parent_msg_id_panel);
+  end procedure;
+
+  procedure rotary_encoder_move_to_state(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant direction           : in    t_rotary_encoder_direction;
+    constant target_state        : in    std_logic_vector(1 downto 0);
+    constant occurrence          : in    natural;
+    constant time_per_edge       : in    time;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  ) is
+    constant C_PROC_NAME : string := "rotary_encoder_move_to_state";
+    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_upper(to_string(direction)) &
+                                     ", " & to_string(target_state) & ", " & to_string(occurrence) & ", " &
+                                     to_string(time_per_edge, ns) & ")";
+    variable v_motion    : t_rotary_encoder_motion := with_time_per_edge(move_motion(MOTION_TO_STATE, direction), time_per_edge);
+  begin
+    v_motion.target_state := target_state;
+    v_motion.num          := occurrence;
+    send_command(VVCT, vvc_instance_idx, C_PROC_CALL, MOVE_TO_STATE, v_motion, msg, scope, parent_msg_id_panel);
+  end procedure;
+
+  procedure rotary_encoder_center_state(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  ) is
+    constant C_PROC_NAME : string := "rotary_encoder_center_state";
+    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ")";
+  begin
+    send_command(VVCT, vvc_instance_idx, C_PROC_CALL, CENTER_STATE, C_ROTARY_ENCODER_MOTION_DEFAULT, msg, scope,
+                 parent_msg_id_panel);
+  end procedure;
+
+  procedure rotary_encoder_set_angle(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant angle               : in    real;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  ) is
+    constant C_PROC_NAME : string := "rotary_encoder_set_angle";
+    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & real_image(angle) & " deg)";
+    variable v_motion    : t_rotary_encoder_motion := C_ROTARY_ENCODER_MOTION_DEFAULT;
+  begin
+    v_motion.angle := angle;
+    send_command(VVCT, vvc_instance_idx, C_PROC_CALL, SET_ANGLE, v_motion, msg, scope, parent_msg_id_panel);
+  end procedure;
+
+  procedure rotary_encoder_jump_edges(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant direction           : in    t_rotary_encoder_direction;
+    constant num_edges           : in    natural;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  ) is
+    constant C_PROC_NAME : string := "rotary_encoder_jump_edges";
+    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_upper(to_string(direction)) &
+                                     ", " & to_string(num_edges) & ")";
+    variable v_motion    : t_rotary_encoder_motion := move_motion(MOTION_EDGES, direction);
+  begin
+    v_motion.num := num_edges;
+    send_command(VVCT, vvc_instance_idx, C_PROC_CALL, JUMP_EDGES, v_motion, msg, scope, parent_msg_id_panel);
+  end procedure;
+
+  procedure rotary_encoder_get_status(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  ) is
+    constant C_PROC_NAME : string := "rotary_encoder_get_status";
+    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ")";
+  begin
+    send_command(VVCT, vvc_instance_idx, C_PROC_CALL, GET_STATUS, C_ROTARY_ENCODER_MOTION_DEFAULT, msg, scope,
+                 parent_msg_id_panel);
+  end procedure;
 
   --==========================================================================================
   -- Transaction info methods
@@ -234,20 +518,41 @@ package body vvc_methods_pkg is
     constant scope                        : in string := C_VVC_CMD_SCOPE_DEFAULT
   ) is
   begin
-  -- <USER_INPUT> Please insert the VVC operations here with the appropriate fields.
-  --  case vvc_cmd.operation is
-  --    when WRITE | READ =>
-  --      vvc_transaction_info_group.bt.operation          := vvc_cmd.operation;
-  --      vvc_transaction_info_group.bt.address            := vvc_cmd.addr;
-  --      vvc_transaction_info_group.bt.data               := vvc_cmd.data;
-  --      vvc_transaction_info_group.bt.vvc_meta.msg       := vvc_cmd.msg;
-  --      vvc_transaction_info_group.bt.vvc_meta.cmd_idx   := vvc_cmd.cmd_idx;
-  --      vvc_transaction_info_group.bt.transaction_status := transaction_status;
-  --      gen_pulse(vvc_transaction_info_trigger, 0 ns, "pulsing global vvc transaction info trigger", scope, ID_NEVER);
+    case vvc_cmd.operation is
+      when MOVE_EDGES | MOVE_ANGLE | MOVE_TO_STATE | CENTER_STATE | SET_ANGLE | JUMP_EDGES | GET_STATUS =>
+        vvc_transaction_info_group.bt.operation          := vvc_cmd.operation;
+        vvc_transaction_info_group.bt.direction          := vvc_cmd.motion.direction;
+        vvc_transaction_info_group.bt.num_edges          := 0;
+        vvc_transaction_info_group.bt.occurrence         := 0;
+        if vvc_cmd.operation = MOVE_EDGES or vvc_cmd.operation = JUMP_EDGES then
+          vvc_transaction_info_group.bt.num_edges        := vvc_cmd.motion.num;
+        elsif vvc_cmd.operation = MOVE_TO_STATE then
+          vvc_transaction_info_group.bt.occurrence       := vvc_cmd.motion.num;
+        end if;
+        vvc_transaction_info_group.bt.target_state       := vvc_cmd.motion.target_state;
+        vvc_transaction_info_group.bt.angle              := vvc_cmd.motion.angle;
+        vvc_transaction_info_group.bt.rpm                := 0.0;
+        vvc_transaction_info_group.bt.time_per_edge      := 0 ns;
+        if vvc_cmd.operation = MOVE_EDGES or vvc_cmd.operation = MOVE_ANGLE or vvc_cmd.operation = MOVE_TO_STATE then
+          if vvc_cmd.motion.speed_form = SPEED_RPM then
+            vvc_transaction_info_group.bt.rpm            := vvc_cmd.motion.rpm;
+          else
+            vvc_transaction_info_group.bt.time_per_edge  := vvc_cmd.motion.time_per_edge;
+          end if;
+        end if;
+        vvc_transaction_info_group.bt.profile_length     := vvc_cmd.motion.profile_length;
+        vvc_transaction_info_group.bt.time_per_entry     := vvc_cmd.motion.time_per_entry;
+        vvc_transaction_info_group.bt.profile_end        := vvc_cmd.motion.profile_end;
+        vvc_transaction_info_group.bt.edges              := C_BASE_TRANSACTION_SET_DEFAULT.edges;
+        vvc_transaction_info_group.bt.status             := C_BASE_TRANSACTION_SET_DEFAULT.status;
+        vvc_transaction_info_group.bt.vvc_meta.msg       := vvc_cmd.msg;
+        vvc_transaction_info_group.bt.vvc_meta.cmd_idx   := vvc_cmd.cmd_idx;
+        vvc_transaction_info_group.bt.transaction_status := transaction_status;
+        gen_pulse(vvc_transaction_info_trigger, 0 ns, "pulsing global vvc transaction info trigger", scope, ID_NEVER);
 
-  --    when others =>
-  --      alert(TB_ERROR, "VVC operation not recognized", scope);
-  --  end case;
+      when others =>
+        alert(TB_ERROR, "VVC operation not recognized", scope);
+    end case;
 
     wait for 0 ns;
   end procedure set_global_vvc_transaction_info;
@@ -257,20 +562,22 @@ package body vvc_methods_pkg is
     variable vvc_transaction_info_group   : inout t_transaction_group;
     constant vvc_cmd                      : in t_vvc_cmd_record;
     constant vvc_result                   : in t_vvc_result;
+    constant edges                        : in natural;
     constant transaction_status           : in t_transaction_status;
     constant scope                        : in string := C_VVC_CMD_SCOPE_DEFAULT
   ) is
   begin
-  -- <USER_INPUT> Please insert the VVC operations here with the appropriate fields.
-  --  case vvc_cmd.operation is
-  --    when READ =>
-  --      vvc_transaction_info_group.bt.data               := vvc_result;
-  --      vvc_transaction_info_group.bt.transaction_status := transaction_status;
-  --      gen_pulse(vvc_transaction_info_trigger, 0 ns, "pulsing global vvc transaction info trigger", scope, ID_NEVER);
+    -- The effect of the command: the encoder state at its end and, for a move, the edges emitted
+    case vvc_cmd.operation is
+      when MOVE_EDGES | MOVE_ANGLE | MOVE_TO_STATE | CENTER_STATE | SET_ANGLE | JUMP_EDGES | GET_STATUS =>
+        vvc_transaction_info_group.bt.edges              := edges;
+        vvc_transaction_info_group.bt.status             := vvc_result;
+        vvc_transaction_info_group.bt.transaction_status := transaction_status;
+        gen_pulse(vvc_transaction_info_trigger, 0 ns, "pulsing global vvc transaction info trigger", scope, ID_NEVER);
 
-  --    when others =>
-  --      alert(TB_ERROR, "VVC operation does not update vvc_result ", scope);
-  --  end case;
+      when others =>
+        alert(TB_ERROR, "VVC operation does not update vvc_result ", scope);
+    end case;
 
     wait for 0 ns;
   end procedure set_global_vvc_transaction_info;
@@ -280,14 +587,13 @@ package body vvc_methods_pkg is
     constant vvc_cmd                    : in t_vvc_cmd_record
   ) is
   begin
-  -- <USER_INPUT> Please insert the VVC operations here.
-  --  case vvc_cmd.operation is
-  --    when WRITE | READ =>
-  --      vvc_transaction_info_group.bt := C_BASE_TRANSACTION_SET_DEFAULT;
+    case vvc_cmd.operation is
+      when MOVE_EDGES | MOVE_ANGLE | MOVE_TO_STATE | CENTER_STATE | SET_ANGLE | JUMP_EDGES | GET_STATUS =>
+        vvc_transaction_info_group.bt := C_BASE_TRANSACTION_SET_DEFAULT;
 
-  --    when others =>
-  --      null;
-  --  end case;
+      when others =>
+        null;
+    end case;
 
     wait for 0 ns;
   end procedure reset_vvc_transaction_info;

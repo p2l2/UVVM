@@ -2,10 +2,10 @@
 
 | Item | Value |
 |---|---|
-| Revision | 0.9 (Stage 5.3 – Increment 3: BFM faults, timed rotation, ramp) |
+| Revision | 0.10 (Stage 5.3 – Increment 4: VVC commands) |
 | Date | 2026-11-11 |
 | Baseline | Branch `p2l2_vip_rotary_encoder`, base `90d56e93`; uvvm_util v2.21.4, uvvm_vvc_framework v2.12.15 |
-| Inputs | Specification rev 0.12, design rev 0.4 (Stages 5.1/5.2 and Increments 1–2 were built against the former separate requirements, architecture and testbench architecture documents, now merged into the design) |
+| Inputs | Specification rev 0.12, design rev 0.5 (Stages 5.1/5.2 and Increments 1–2 were built against the former separate requirements, architecture and testbench architecture documents, now merged into the design) |
 | Mode | One-shot (pause at Stage 5.1, Stage 5.2, each increment); development simulator NVC 1.23.0; the user commits |
 
 ## Revision history
@@ -21,6 +21,7 @@
 | 0.7 | 2026-11-09 | Increment 1 approved by the user (committed as `8b333d5d`). New Section 4 – Increment 2: BFM signal options (index validation and last valid configuration, bounce with cut-off, jitter; decisions AD-22 to AD-25); 9 BFM test cases; NVC regression 23/23 |
 | 0.8 | 2026-11-11 | Increment 2 approved (`a482f55a`, `27e50a52`); Increment 3 approved by the user 2026-11-11 incl. D-89 to D-94. New Section 5 – Increment 3: BFM faults, timed rotation, ramp (edge offsets, stuck outputs, set angle, jump, glitch, rotation engine with profiles, `rotary_encoder_rotate`, `rotary_encoder_linear_ramp`); 7 BFM test cases; NVC regression 31/31. Section 4 statements about edge offsets updated |
 | 0.9 | 2026-11-11 | Increment 3: unused `last_rpm` removed; new test case `linear_ramp_rotation` (user request); NVC regression 32/32 |
+| 0.10 | 2026-11-11 | Increment 3 committed by the user (`3e4a08cf`). Glitch removed (D-100), Sections 5 and 6 updated; transaction info with the command's effect (D-98). New Section 6 – Increment 4: VVC commands (`p_motion`, executor handshake, moves, centre state, fault events, status read, terminate, transaction info, logging); 6 VVC test cases replace the Stage 5.2 placeholder; NVC regression 36/36 |
 
 ## 1. Stage 5.1 – Generate skeleton
 
@@ -317,20 +318,20 @@ Decided by the user 2026-11-10 during the review of the increment: **AD-26** bou
 
 ## 5. Stage 5.3 – Increment 3: BFM faults, timed rotation, ramp
 
-Implemented and approved 2026-11-11 against design rev 0.3 (decisions D-86 to D-88 by the user; D-89 to D-94 taken in one-shot mode and approved with the increment, Section 5.5).
+Implemented and approved 2026-11-11 against design rev 0.3 (decisions D-86 to D-88 by the user; D-89 to D-94 taken in one-shot mode and approved with the increment, Section 5.5). Committed by the user as `3e4a08cf`.
 
 ### 5.1 Source changes
 
 | File | Change |
 |---|---|
-| `src/rotary_encoder_bfm_pkg.vhd` | **Public:** `rotary_encoder_linear_ramp`, `rotary_encoder_rotate` (signed rpm; direction + `time_per_edge`; profile with `time_per_entry` and `profile_end`), `rotary_encoder_set_angle`, `rotary_encoder_jump_edges`, `rotary_encoder_glitch`, as in the API preview. **State record (private fields):** latched edge offsets (quanta per boundary), stuck levels last applied, segment kind (moving / bounded) and end time, profile entry and pass start. **Body-only:** `edge_offset_error`, `latch_geometry`, `upper_bound`/`lower_bound`/`settle` (state boundaries with the offsets), `output_level`/`z_level`/`apply_stuck`, `settle_bounce` (shared by `cut_bounce` and the fault events), `segment_time` with whole edges and rest separately (rotations up to 2³¹ edges from one anchor stay exact), `next_motion_event` with three outcomes (edge, segment end, none), `speed_error`/`set_speed`, `start_rotation_segment`, `start_profile_entry`, `advance_profile` (hold / stop / repeat), `halt`, `is_command_valid`, `run_to_end` (moves and timed rotation), `execute_rotation`, `place_shaft`. `rotary_encoder_run_motion` handles rotations: `MOTION_PROFILE_PASS` at the end of a pass, and it waits only for an interrupt during a rotation at 0 rpm without a profile. Removed the private state field `last_rpm`: written but never read, a leftover of the removed detent model |
-| `tb/maintenance_tb/rotary_encoder_bfm_tb.vhd` | Wrappers `jump`, `set_angle`, `glitch`, `rotate` (3), helpers `wait_for_logger` (F-025), `num_events`, `num_ab_events`, `b_offset_config`, `is_b_edge`, `check_ramp`, `check_at_rest`; status fields in `move_angle`; test cases of 5.2 |
+| `src/rotary_encoder_bfm_pkg.vhd` | **Public:** `rotary_encoder_linear_ramp`, `rotary_encoder_rotate` (signed rpm; direction + `time_per_edge`; profile with `time_per_entry` and `profile_end`), `rotary_encoder_set_angle`, `rotary_encoder_jump_edges` (`rotary_encoder_glitch` was removed in Increment 4, D-100), as in the API preview. **State record (private fields):** latched edge offsets (quanta per boundary), stuck levels last applied, segment kind (moving / bounded) and end time, profile entry and pass start. **Body-only:** `edge_offset_error`, `latch_geometry`, `upper_bound`/`lower_bound`/`settle` (state boundaries with the offsets), `output_level`/`z_level`/`apply_stuck`, `settle_bounce` (shared by `cut_bounce` and the fault events), `segment_time` with whole edges and rest separately (rotations up to 2³¹ edges from one anchor stay exact), `next_motion_event` with three outcomes (edge, segment end, none), `speed_error`/`set_speed`, `start_rotation_segment`, `start_profile_entry`, `advance_profile` (hold / stop / repeat), `halt`, `is_command_valid`, `run_to_end` (moves and timed rotation), `execute_rotation`, `place_shaft`. `rotary_encoder_run_motion` handles rotations: `MOTION_PROFILE_PASS` at the end of a pass, and it waits only for an interrupt during a rotation at 0 rpm without a profile. Removed the private state field `last_rpm`: written but never read, a leftover of the removed detent model |
+| `tb/maintenance_tb/rotary_encoder_bfm_tb.vhd` | Wrappers `jump`, `set_angle`, `rotate` (3), helpers `wait_for_logger` (F-025), `num_events`, `num_ab_events`, `b_offset_config`, `is_b_edge`, `check_ramp`, `check_at_rest`; status fields in `move_angle`; test cases of 5.2 |
 
 **Edge offsets (REQ-075 … 077).** The four offsets are latched with the geometry (at init, at every motion start, at set angle and jump) as boundary offsets in quanta, indexed by the Gray index of the state below the boundary (`00→10` A rise, `10→11` B rise, `11→01` A fall, `01→00` B fall). The state at position *p* reaches from −K/2 + offset(*p*−1) to +K/2 + offset(*p*); the boundary distance, the landing point after an edge and the clamp of the current angle use these bounds. State centres are unchanged, so move ends, positions, the index and centre state are unaffected. Each offset must lie in (−45°, +45°) and be finite, else `TB_ERROR` at the call.
 
 **Stuck outputs (REQ-078, 079).** Every edge drives the stuck level of a stuck output (`drive_outputs`), and no bounce is scheduled on it. At the start of each command `apply_stuck` drives only the outputs whose stuck setting changed (newly stuck: the stuck level; released: the level of the current state), so a running bounce on another output is not touched. A stuck Z ignores `index_inverted`. Invalid levels are part of the signal configuration check (one `TB_ERROR`, and per `run_motion` call during a VVC rotation).
 
-**Fault events (REQ-071, 072, 074).** `set_angle` and `jump_edges` compute the new (position, offset), resolve it into a state with the latched boundaries (on a boundary: the side of the old angle), settle a running bounce and drive the new state in one delta. `glitch` drives the inverted level for `width` and back; on a stuck channel it only waits `width` (D-86).
+**Fault events (REQ-071, 074).** `set_angle` and `jump_edges` compute the new (position, offset), resolve it into a state with the latched boundaries (on a boundary: the side of the old angle), settle a running bounce and drive the new state in one delta.
 
 **Rotation in the engine.** A rotation is an unbounded segment; with a profile, each entry ends at `profile_t0 + (j + 1) × time_per_entry` (exact `time` arithmetic) and the next entry starts there at the current angle (rounded once). An edge due exactly at an entry end comes first. At 0 rpm a segment has no edge. A speed change during a rotation (a rotation that replaces a rotation) keeps the geometry latched at the rotation start. `rotary_encoder_rotate` runs the rotation until `now + duration` and stops there at the reached angle; with `PROFILE_STOP` it returns at the profile end.
 
@@ -339,8 +340,7 @@ Implemented and approved 2026-11-11 against design rev 0.3 (decisions D-86 to D-
 | TC | Content |
 |---|---|
 | `set_angle_and_jump_edges` | Jumps of 1, 2, 3, 4 and 80 edges from each of the four states in both directions: zero time; A/B entries 1, 1, 1, 0, 0; decoded position change ±1, 0 (illegal transition), ∓1, 0, 0; status position ± N; Z per the model; one revolution gives no event at all. Jump of 2, then one revolution: Z follows the model from position 2, one index pulse. Set angle from position 5 to 0° (AB = zero state, Z active, one A/B entry, zero time) and to 30° (position 7). Set angle onto the boundary at 2.25° from 0° (position 0) and from 4.5° (position 1), no event; the same angle again: nothing. After 30°, one revolution: Z follows the model from position 7 |
-| `glitch` | On A and on B: 2 entries on the selected channel, exactly `width` apart, completion after `width`, state and position unchanged, a following 4-edge move counts 4. On a channel stuck at `'0'`: no event, no alert, completion after `width` |
-| `invalid_fault_event` | Glitch width 0 ns and −1 ns; set angle `real'high` and `real'low`: one `TB_ERROR` each, no time, no event |
+| `invalid_fault_event` | Set angle `real'high` and `real'low`: one `TB_ERROR` each, no time, no event |
 | `edge_offsets` | B offset +30°, 1 µs per edge, 8 edges forward from 0° and in reverse from 36°: A edges at (k − ½) µs, B edges 1/3 µs later going forward and 1/3 µs earlier in reverse (± one step), duration 8 µs. A rise +20°, A fall −20°: A high time 2 µs − 4/9 µs (± two steps). B offset +30° at 60 and 600 rpm: B edges displaced by `time_per_edge`/3 (± two steps). All four offsets at +44° and −44°: a 4-edge move ends in the zero state after exactly 4 µs. Offsets +45°, −45°, `real'high` rejected. Index stimulus with the B offset: Z changes in the same entry as the displaced A/B edges |
 | `stuck_outputs` | B stuck at `'0'` (applied by a 0-edge move), 3 revolutions: no B event, 120 A events, status position 240. B released: B changes at the start of the next command to the level of the current state. Z stuck at `'Z'` from init during one revolution: Z stays `'Z'`, no Z event, every entry counted as invalid level. Z stuck at `'1'` with `index_inverted`: Z `'1'`, no Z event. Bounce with A stuck at `'1'`: no A event, B edges with 4 toggles each. `a_stuck` `'X'`, `b_stuck` `'U'`, `z_stuck` `'H'` rejected |
 | `bfm_only_flow_and_rotate` | BFM-only flow: 4 edges with exact times and Z per the model, then a 10° move (position 6). `rotary_encoder_rotate`: +60 rpm for 50 ms (4 edges within one step of the ideal rpm-form times, at rest at 18°, `is_rotating` false, rpm 0.0, no edge in the following 50 ms); −120 rpm for 50 ms (8 edges back); reverse at 1 µs per edge for 2.75 µs (edges at 0.5, 1.5, 2.5 µs, at rest at −12.375°, position −3); profile (60, 120) rpm, 25 ms, `PROFILE_STOP`: edges at 6.25, 18.75, 28.125, 34.375, 40.625, 46.875 ms, returns at 50 ms at 27°; `PROFILE_HOLD` for 60 ms: then 53.125, 59.375 ms, at rest at 7.6 edge angles; `PROFILE_REPEAT` for 80 ms: then 56.25, 68.75, 78.125 ms, at rest at 8.8 edge angles; profile (0, 60): edges at 31.25, 43.75 ms; a 256-entry profile accepted; 0 rpm: no event. Rejected with one `TB_ERROR` each, no time, no event: rpm `real'high`, `time_per_edge` 0 ns, empty profile, 257 entries, `time_per_entry` 0 ns, entry `real'high`, duration 0 ns and −1 ns |
@@ -354,12 +354,11 @@ Also in this increment: `move_angle` checks the remaining status fields after th
 | REQ | Implemented | Verified (NVC) | Test |
 |---|---|---|---|
 | REQ-071 | Yes | PASS | `set_angle_and_jump_edges` |
-| REQ-072 | Yes | PASS | `glitch` |
 | REQ-074 | Yes | PASS | `invalid_fault_event` |
 | REQ-075, 076, 077 | Yes | PASS | `edge_offsets`, `center_state` |
 | REQ-078, 079 | Yes | PASS | `stuck_outputs` |
 | REQ-080 | Yes | PASS | `bfm_only_flow_and_rotate` |
-| REQ-086 | BFM part: yes | PASS (BFM); VVC part NOT RUN (Inc 4), rotation part NOT RUN (Inc 5) | `move_angle`, `bfm_only_flow_and_rotate` |
+| REQ-086 | BFM part: yes | PASS (BFM); VVC part: Section 6; rotation part NOT RUN (Inc 5) | `move_angle`, `bfm_only_flow_and_rotate` |
 | REQ-110 | BFM part (`rotary_encoder_rotate`, engine validation): yes | PASS (BFM); VVC commands NOT RUN (Inc 5) | `bfm_only_flow_and_rotate` |
 | REQ-111, 112 | Engine: yes | Through `rotary_encoder_rotate` only (PASS); the VVC criteria (completion at the first edge, profile replaced by a speed change) NOT RUN (Inc 5) | `bfm_only_flow_and_rotate`, `linear_ramp_rotation` |
 | REQ-115 | Yes | PASS | `linear_ramp`, `linear_ramp_rotation` |
@@ -378,7 +377,7 @@ Runs: run 1 – compile error (`string & std_logic` ambiguous in a message); run
 
 ### 5.5 Decisions taken during the increment
 
-By the user (design rev 0.3): **D-86** glitch on a stuck channel drives nothing; **D-87** REQ-075 reverse criterion corrected (F-024); **D-88** `duration` ≤ 0 ns of `rotary_encoder_rotate` is `TB_ERROR`.
+By the user (design rev 0.3): **D-87** REQ-075 reverse criterion corrected (F-024); **D-88** `duration` ≤ 0 ns of `rotary_encoder_rotate` is `TB_ERROR`.
 
 Taken in one-shot mode (internal, approved by the user with the increment):
 - **D-89** (E-3.2) log line of fault events;
@@ -391,3 +390,70 @@ Taken in one-shot mode (internal, approved by the user with the increment):
 ### 5.6 Notes for later increments
 
 - **Inc 4/5:** `rotary_encoder_run_motion` now supports rotations and profiles (`MOTION_PROFILE_PASS`, waiting for an interrupt at 0 rpm). Only the BFM path (`run_to_end`) is tested so far; the `run_motion` path is tested with the VVC.
+
+## 6. Stage 5.3 – Increment 4: VVC commands
+
+Implemented and approved 2026-11-11 against design rev 0.5 and spec rev 0.13 (both approved with the increment). Decisions D-95 to D-99 taken in one-shot mode (internal). D-100 by the user: the glitch is removed from the VIP (Section 6.5).
+
+### 6.1 Source changes
+
+| File | Change |
+|---|---|
+| `src/transaction_pkg.vhd` | `t_operation`: `MOVE_EDGES`, `MOVE_ANGLE`, `MOVE_TO_STATE`, `CENTER_STATE`, `SET_ANGLE`, `JUMP_EDGES`, `GET_STATUS`. Base transaction fields of design 4.6.5 (`direction`, `num_edges`, `target_state`, `occurrence`, `angle`, `rpm`, `time_per_edge`, `profile_length`, `time_per_entry`, `profile_end`) plus the effect fields `edges` and `status` (D-98); uses `rotary_encoder_bfm_pkg` (compiled before it) |
+| `src/vvc_cmd_pkg.vhd` | Command field `motion : t_rotary_encoder_motion`; `to_string(t_vvc_result)` with 4 decimals, as the BFM log |
+| `src/vvc_methods_pkg.vhd` | `unwanted_activity_severity` removed from `t_vvc_config` (no UAD, as PWM and clock_generator). Methods: `rotary_encoder_move_edges`, `_move_angle`, `_move_to_state` (rpm and `time_per_edge` overloads each), `_center_state`, `_set_angle`, `_jump_edges`, `_get_status`; body-only helpers `send_command`, `move_motion`, `with_rpm`, `with_time_per_edge`, `real_image`. Transaction info set/reset for the seven operations; the `t_vvc_result` overload of `set_global_vvc_transaction_info` takes `edges` and writes `edges` and `status` for all operations |
+| `src/rotary_encoder_vvc.vhd` | Request/response types and signals `motion_req`, `motion_rsp`, `motion_interrupt` (D-99). Executor: `request` (sends a request, waits for its response or `terminate_current_cmd`, then sends `REQ_HALT`), `execute_move` (logs the end or "Terminated after N edges"; transaction info `COMPLETED` with edges and end status, `FAILED` when rejected), `execute_operation`, `complete_transaction_info`; `GET_STATUS` stores the status in the result queue; BFM access = moves and fault events; `insert_delay` with clock cycles → `TB_ERROR`. New process `p_motion`: `rotary_encoder_init` from the generic at time 0, request detection by index, `rotary_encoder_set_motion` with the configuration taken at the move start (D-96), `rotary_encoder_run_motion` loop, zero-time operations through the BFM procedures. No `USER_INPUT` marker is left in `src/` |
+| `src/rotary_encoder_bfm_pkg.vhd` | `rotary_encoder_run_motion` applies a changed stuck setting at each call (D-97, F-027). `rotary_encoder_glitch` removed (D-100) |
+| `tb/maintenance_tb/rotary_encoder_bfm_tb.vhd` | Test case `glitch`, wrapper `glitch` and the glitch-width step of `invalid_fault_event` removed (D-100) |
+| `tb/maintenance_tb/rotary_encoder_vvc_tb.vhd` | Placeholder `vvc_instances_execute_commands` removed (Stage 5.2 decision). Helpers `await`, `wait_for_logger`, `read_status`, `check_status`, `check_event_time`, `edge_direction`, `go_to_zero`, `begin_reject`/`end_reject`; six test cases (6.2) |
+
+### 6.2 Tests (`rotary_encoder_vvc_tb`)
+
+| TC | Content |
+|---|---|
+| `vvc_power_up_state` | One logged entry per instance at 0 ns: instance 1 `AB = 11`, Z `'1'`; instance 3 (generic: 30°, zero state `00`) `AB = 01`, Z `'0'`; status through the VVC position 0 / 0° and 7 / 30°; no further event of instances 1–3 for 1 µs; checker clean. `zero_state` changed to `00` in the shared configuration: the next move raises one `TB_ERROR`, takes no time, no event; restored, a 1-edge move works |
+| `hold_between_commands` | 3 edges, `insert_delay` of 100 edge intervals, an idle wait of 100 intervals: no event after the move; move plus delay last exactly 103 intervals. Moves −5, +2, −1 queued back to back: 8 edges at exactly (k − ½) × 100 ns, checker −4, no illegal transition, status −1 / −4.5° |
+| `vvc_commands` | Queue of 10 moves (i edges, alternating direction): 55 edges at exactly (k − ½) × 100 ns, each edge in the direction of its move, duration 5.5 µs, checker −5. `insert_delay` then a move; two moves queued during it and flushed: only the running move happens. Transaction info: while a 4-edge move runs `MOVE_EDGES`, `REVERSE`, 4 edges, `time_per_edge`, `IN_PROGRESS`, `edges` 0; at `COMPLETED` `edges` 4 and the end position; a move with 0 ns per edge ends with `FAILED`, `edges` 0, position unchanged (one `TB_ERROR`); `get_status` puts its result into `status`; `INACTIVE` afterwards. Angle move 10° time form from 0°: edges at 2.25 and 6.75 µs, done at 10 µs, all REQ-086 status fields. Centre state: 9°, position 2, zero time, no event. 9° at 60 rpm: duration 25 ms, edges at their rpm-form times. 4 edges at 6000 rpm. Move to state queued after a 1.125° move: edges at 0.5 and 1.5 µs, done at 2 µs, status 9°; move to state `10` at 60 rpm: one edge, done after 12.5 ms. Set angle 30° from position 3 (no A/B event), jump 2 edges (zero time, one illegal transition, status 39°). A move with `ID_BFM` disabled and one enabled (log reviewed, 6.4) |
+| `terminate_move` | A 20-edge move terminated after 10.25 intervals: the command completes at the terminate, no further event, 10 edges, status 46.125°; the next 2-edge move emits its first edge a quarter interval after its start |
+| `multiple_instances` | Instances 1 (8 edges forward, 100 ns) and 2 (6 edges reverse, 150 ns) at the same time: each log has exactly its own edges at exact times, instance 3 none; status 8 / −6 |
+| `config_change_between_moves` | Bounce enabled in the shared configuration during a 4-edge move: that move has 4 entries, the next 12 (one bounce pulse per edge). B stuck at `'0'` set between moves: B falls at the start of the next move, only the two A edges follow; released: B rises at the start of the next move, the A edge follows at half an interval, status position 13 (the edges of the stuck period count) |
+
+### 6.3 Requirement status
+
+| REQ | Implemented | Verified (NVC) | Test |
+|---|---|---|---|
+| REQ-001, 002, 006 (VVC path) | Yes | PASS | `vvc_power_up_state`; REQ-001 also through `check_checker` in every test |
+| REQ-003, 004 (moves) | Yes | PASS; rotation part NOT RUN (Inc 5) | `hold_between_commands` |
+| REQ-078 (VVC path) | Yes | PASS | `config_change_between_moves` |
+| REQ-081 | Yes | PASS | `vvc_commands` |
+| REQ-082 | Yes | PASS | `terminate_move` |
+| REQ-083 (moves) | Yes | PASS; rotation part NOT RUN (Inc 5) | `multiple_instances` |
+| REQ-084 | Yes | PASS | `config_change_between_moves` |
+| REQ-085 (moves, fault events) | Yes | PASS (Sim); Review: log in the evidence file (6.4); rotation part Inc 5 | `vvc_commands` |
+| REQ-086 (VVC) | Yes | PASS; rotation part NOT RUN (Inc 5) | `vvc_commands`, `vvc_power_up_state` |
+| REQ-096 (VVC, execution time) | Yes | PASS | `vvc_commands` |
+
+### 6.4 Results
+
+| Check | Simulator | Command | Result | Evidence |
+|---|---|---|---|---|
+| Regression, 36 tests (30 BFM, 6 VVC) | NVC 1.23.0 (1 fs) | `cd sim && python3 ../script/maintenance_script/test.py -s NVC -fr -v` | **PASS** (36 passing, exit 0) | `doc/evidence/inc4/regression_nvc.log` |
+| REQ-085 log review (ID on/off) | NVC | in the regression | `vvc_commands`: the move with `ID_BFM` disabled has no `ID_BFM` line, the one after `enable_log_msg` has; move lines name the VVC call, edges, position and angle | same log |
+| GHDL, Questa | – | – | NOT RUN (Stage 5.4) | – |
+| VSG | – | – | BLOCKED (F-022, Stage 5.4) | – |
+
+Runs: run 1 – compiled, 31/32: the placeholder `vvc_instances_execute_commands` expected "no driver yet" (removed as planned); run 2 – 37/37; run 3 (verbose) – 37/37; run 4 after `to_string` with 4 decimals – 37/37; run 5 with the stuck step – 37/37 PASS, then HDLRegression crashed while saving its project (F-028); run 6 – identical, 37/37, exit 0; run 7 after removing the glitch (D-100) – 36/36, exit 0; run 8 with the transaction-info effect fields (D-98, option A) – 36/36, exit 0.
+
+### 6.5 Decisions taken during the increment
+
+Taken in one-shot mode (internal, approved by the user with the increment):
+- **D-95** (E-4.1) the interpreter change for `halt_req` moves to Increment 5, where it is tested;
+- **D-96** a VVC move keeps the configuration of its start (REQ-084; F-026);
+- **D-97** `rotary_encoder_run_motion` applies a changed stuck setting at each call (F-027);
+- **D-99** one request and one response record between executor and `p_motion`; alerts of a rejected move name `rotary_encoder_set_motion(MOTION_…)`, after the executor's "Will be executed" line of the VVC call.
+
+By the user: **D-98** (E-4.2, option A) the transaction info carries the effect of each command (`edges`, end `status`, the `get_status` result) and a rejected move ends with `FAILED`. **D-100** no glitch in the VIP: spec rev 0.13 (A-12), REQ-072 removed, BFM procedure and VVC method removed; bounce, jitter and edge offsets cover the short pulses a decoder must handle. Spec rev 0.13 and design rev 0.5 approved 2026-11-11.
+
+### 6.6 Notes for later increments
+
+- **Inc 5:** `p_motion` handles `REQ_MOTION` for rotations through the same path; to add: rejects during a rotation (REQ-105), rotation config per edge (pass the current `vvc_config.bfm_config` instead of the start configuration), the response at the first edge / profile pass, `REQ_STOP`, `rotation_active`, `halt_req` in the interpreter (D-95), `stop_when_idle_severity` in `t_vvc_config` (SK-8).

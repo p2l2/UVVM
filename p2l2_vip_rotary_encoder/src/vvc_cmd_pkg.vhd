@@ -39,12 +39,7 @@ package vvc_cmd_pkg is
   --==========================================================================================
   type t_vvc_cmd_record is record
     -- VVC dedicated fields
-    --<USER_INPUT> Insert all data types needed to transport data to the BFM here.
-    -- This includes data field, address field, constraints (e.g. timeout), etc.
-    -- Example:
-    -- data                      : std_logic_vector(C_VVC_CMD_DATA_MAX_LENGTH-1 downto 0);
-    -- max_receptions            : integer;
-    -- timeout                   : time;
+    motion                    : t_rotary_encoder_motion;  -- Moves; also direction/num (jump) and angle (set angle)
     -- Common VVC fields  (Used by td_vvc_framework_common_methods_pkg procedures, and thus mandatory)
     operation                 : t_operation;
     proc_call                 : string(1 to C_VVC_CMD_STRING_MAX_LENGTH);
@@ -64,11 +59,7 @@ package vvc_cmd_pkg is
 
   constant C_VVC_CMD_DEFAULT : t_vvc_cmd_record := (
     -- VVC dedicated fields
-    --<USER_INPUT> Set the fields you added to the t_vvc_cmd_record above to their default value here
-    -- Example:
-    -- data                      => (others => '0'),
-    -- max_receptions            => 1,
-    -- timeout                   => 0 ns,
+    motion                    => C_ROTARY_ENCODER_MOTION_DEFAULT,
     -- Common VVC fields
     operation                 => NO_OPERATION,
     proc_call                 => (others => NUL),
@@ -140,14 +131,17 @@ end package vvc_cmd_pkg;
 
 package body vvc_cmd_pkg is
 
+  -- Decimals of the angle and the speed, as in the BFM log
+  constant C_REAL_DIGITS : natural := 4;
+
   -- Custom to_string overload needed when result is of a record type
   function to_string(
     result : t_vvc_result
   ) return string is
   begin
-    return "position " & to_string(result.position) & ", angle " & to_string(result.angle, 3) & " deg, AB " &
+    return "position " & to_string(result.position) & ", angle " & to_string(result.angle, C_REAL_DIGITS) & " deg, AB " &
            to_string(result.ab) & ", index " & to_string(result.index_active) & ", rotating " &
-           to_string(result.is_rotating) & ", rpm " & to_string(result.rpm, 3);
+           to_string(result.is_rotating) & ", rpm " & to_string(result.rpm, C_REAL_DIGITS);
   end function to_string;
 
 end package body vvc_cmd_pkg;
