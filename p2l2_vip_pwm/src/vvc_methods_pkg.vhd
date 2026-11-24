@@ -210,7 +210,8 @@ package vvc_methods_pkg is
     constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
   );
 
-  -- Generator role: ends the generation at once and drives the idle level.
+  -- Generator role: ends a continuous run at once and drives the idle level. Queued like every command, so it cuts
+  -- the waveform at once only if no command is queued before it. terminate_current_command() ends a pwm_generate().
   procedure pwm_abort(
     signal   VVCT                : inout t_vvc_target_record;
     constant vvc_instance_idx    : in    integer;
@@ -239,8 +240,8 @@ package vvc_methods_pkg is
     constant active_time         : in    time;
     constant msg                 : in    string;
     constant num_periods         : in    integer        := 1;
-    constant alert_level         : in    t_alert_level  := ERROR;
     constant timeout             : in    time           := C_UNDEFINED_TIME;
+    constant alert_level         : in    t_alert_level  := ERROR;
     constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
     constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
   );
@@ -252,8 +253,8 @@ package vvc_methods_pkg is
     constant duty                : in    real;
     constant msg                 : in    string;
     constant num_periods         : in    integer        := 1;
-    constant alert_level         : in    t_alert_level  := ERROR;
     constant timeout             : in    time           := C_UNDEFINED_TIME;
+    constant alert_level         : in    t_alert_level  := ERROR;
     constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
     constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
   );
@@ -267,8 +268,8 @@ package vvc_methods_pkg is
     constant resolution          : in    integer;
     constant msg                 : in    string;
     constant num_periods         : in    integer        := 1;
-    constant alert_level         : in    t_alert_level  := ERROR;
     constant timeout             : in    time           := C_UNDEFINED_TIME;
+    constant alert_level         : in    t_alert_level  := ERROR;
     constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
     constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
   );
@@ -634,8 +635,8 @@ package body vvc_methods_pkg is
     constant active_time         : in    time;
     constant msg                 : in    string;
     constant num_periods         : in    integer        := 1;
-    constant alert_level         : in    t_alert_level  := ERROR;
     constant timeout             : in    time           := C_UNDEFINED_TIME;
+    constant alert_level         : in    t_alert_level  := ERROR;
     constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
     constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
   ) is
@@ -653,8 +654,8 @@ package body vvc_methods_pkg is
     constant duty                : in    real;
     constant msg                 : in    string;
     constant num_periods         : in    integer        := 1;
-    constant alert_level         : in    t_alert_level  := ERROR;
     constant timeout             : in    time           := C_UNDEFINED_TIME;
+    constant alert_level         : in    t_alert_level  := ERROR;
     constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
     constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
   ) is
@@ -674,8 +675,8 @@ package body vvc_methods_pkg is
     constant resolution          : in    integer;
     constant msg                 : in    string;
     constant num_periods         : in    integer        := 1;
-    constant alert_level         : in    t_alert_level  := ERROR;
     constant timeout             : in    time           := C_UNDEFINED_TIME;
+    constant alert_level         : in    t_alert_level  := ERROR;
     constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
     constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
   ) is

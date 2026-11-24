@@ -415,9 +415,9 @@ For all overloads:
 
 .. code-block::
 
-    pwm_check(period, active_time, num_periods, msg, pwm, [terminate,] [alert_level, [timeout, [scope, [msg_id_panel, [config]]]]])
-    pwm_check(period, count, resolution, num_periods, msg, pwm, [terminate,] [alert_level, [timeout, [scope, [msg_id_panel, [config]]]]])
-    pwm_check(duty, num_periods, msg, pwm, [terminate,] [alert_level, [timeout, [scope, [msg_id_panel, [config]]]]])
+    pwm_check(period, active_time, msg, pwm, [terminate,] [num_periods, [timeout, [alert_level, [scope, [msg_id_panel, [config]]]]]])
+    pwm_check(period, count, resolution, msg, pwm, [terminate,] [num_periods, [timeout, [alert_level, [scope, [msg_id_panel, [config]]]]]])
+    pwm_check(duty, msg, pwm, [terminate,] [num_periods, [timeout, [alert_level, [scope, [msg_id_panel, [config]]]]]])
 
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | Object   | Name               | Dir.   | Type                         | Description                                             |
@@ -433,8 +433,6 @@ For all overloads:
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | duty               | in     | real                         | The expected duty cycle, 0.0 to 1.0                     |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | num_periods        | in     | integer                      | Number of consecutive periods to check, >= 1            |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | msg                | in     | string                       | A custom message to be appended in the log/alert        |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | signal   | pwm                | in     | std_logic                    | The PWM line observed by the BFM                        |
@@ -443,13 +441,16 @@ For all overloads:
 |          |                    |        |                              | without an alert (logged with ID_TERMINATE_CMD). Used   |
 |          |                    |        |                              | by the VVC for terminate_current_command().             |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | alert_level        | in     | :ref:`t_alert_level`         | Sets the severity for the alert. Default value is       |
-|          |                    |        |                              | ERROR.                                                  |
+| constant | num_periods        | in     | integer                      | Number of consecutive periods to check, >= 1. Default   |
+|          |                    |        |                              | value is 1.                                             |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | timeout            | in     | time                         | Maximum time of the observation, from the call. Default |
 |          |                    |        |                              | value is C_UNDEFINED_TIME, which leads to using         |
 |          |                    |        |                              | config.timeout. 0 ns means no timeout. See              |
 |          |                    |        |                              | :ref:`pwm_timeout`.                                     |
++----------+--------------------+--------+------------------------------+---------------------------------------------------------+
+| constant | alert_level        | in     | :ref:`t_alert_level`         | Sets the severity for the alert. Default value is       |
+|          |                    |        |                              | ERROR.                                                  |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | scope              | in     | string                       | Describes the scope from which the log/alert            |
 |          |                    |        |                              | originates. Default value is C_BFM_SCOPE ("PWM BFM").   |
@@ -465,12 +466,12 @@ For all overloads:
 .. code-block::
 
     -- Examples:
-    pwm_check(1 us, 250 ns, 5, "Check 5 periods", pwm, ERROR, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, C_PWM_BFM_CONFIG_DEFAULT);
-    pwm_check(1 us, 64, 256, 5, "Check 5 periods with 64/256 duty", pwm, ERROR, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, v_config);
-    pwm_check(0.25, 10, "Check 25 % duty", pwm, ERROR, 15 us, C_SCOPE, shared_msg_id_panel, v_config);
+    pwm_check(1 us, 250 ns, "Check 5 periods", pwm, 5, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, C_PWM_BFM_CONFIG_DEFAULT);
+    pwm_check(1 us, 64, 256, "Check 5 periods with 64/256 duty", pwm, 5, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+    pwm_check(0.25, "Check 25 % duty", pwm, 10, 15 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
 
     -- With the default values of the optional parameters:
-    pwm_check(1 us, 250 ns, 5, "Check 5 periods", pwm);
+    pwm_check(1 us, 250 ns, "Check 5 periods", pwm, 5);
 
 
 .. _pwm_conversion_functions_bfm:
@@ -497,34 +498,34 @@ Local BFM overloads
 All optional parameters of the PWM BFM procedures have default values, so a call with the key parameters only uses
 C_BFM_SCOPE, shared_msg_id_panel and C_PWM_BFM_CONFIG_DEFAULT, e.g. ::
 
-    pwm_check(1 us, 250 ns, 5, "Check 5 periods", pwm);
+    pwm_check(1 us, 250 ns, "Check 5 periods", pwm, 5);
 
 A good approach for better readability and maintainability, when the testbench uses its own configuration or scope, is to
 make simple, local overloads for the BFM procedures in the TB process. A local overload with the same parameters as the
 call above would be ambiguous, because the BFM procedure matches the call through its default values. Leave out the
 signal instead, which the local procedure can read directly, e.g. ::
 
-    pwm_check(1 us, 250 ns, 5, "Check 5 periods");
+    pwm_check(1 us, 250 ns, "Check 5 periods", 5);
 
 rather than ::
 
-    pwm_check(1 us, 250 ns, 5, "Check 5 periods", pwm, ERROR, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, C_PWM_CONFIG_LOCAL);
+    pwm_check(1 us, 250 ns, "Check 5 periods", pwm, 5, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, C_PWM_CONFIG_LOCAL);
 
 By defining the local overload as e.g. ::
 
     procedure pwm_check(
       constant period      : in time;
       constant active_time : in time;
-      constant num_periods : in integer;
-      constant msg         : in string) is
+      constant msg         : in string;
+      constant num_periods : in integer := 1) is
     begin
       pwm_check(period,               -- Keep as is
                 active_time,          -- Keep as is
-                num_periods,          -- Keep as is
                 msg,                  -- Keep as is
                 pwm,                  -- The TB signal
-                ERROR,                -- Use the default
+                num_periods,          -- Keep as is
                 C_UNDEFINED_TIME,     -- Use the timeout from the config
+                ERROR,                -- Use the default
                 C_SCOPE,              -- Use the TB scope
                 shared_msg_id_panel,  -- Use global, shared msg_id_panel
                 C_PWM_CONFIG_LOCAL);  -- Use locally defined configuration
@@ -969,9 +970,13 @@ GENERATOR role only. A TB_ERROR is raised if no run is active.
 
 pwm_abort()
 ----------------------------------------------------------------------------------------------------------------------------------
-Adds an abort command to the PWM VVC executor queue. The generation ends at once, possibly cutting the current
-period short, and the VVC drives the idle level. GENERATOR role only. A TB_ERROR is raised if no run is active.
-terminate_current_command() during a pwm_generate() command also aborts the generation.
+Adds an abort command to the PWM VVC executor queue, which will run as soon as all preceding commands have completed. It
+ends a continuous run (:ref:`pwm_start_vvc`) at once, possibly cutting the current period short, and the VVC drives the
+idle level. GENERATOR role only. A TB_ERROR is raised if no continuous run is active.
+
+The abort cuts the waveform at once only if no command is queued before it: behind a pwm_update() it waits for the next
+period boundary, behind a pwm_stop() the run has already ended. To end a pwm_generate() burst early, use
+terminate_current_command().
 
 .. code-block::
 
@@ -1069,9 +1074,9 @@ cycle (the transaction info operation is then CHECK_DUTY). OBSERVER role only.
 
 .. code-block::
 
-    pwm_check(VVCT, vvc_instance_idx, period, active_time, msg, [num_periods, [alert_level, [timeout, [scope]]]])
-    pwm_check(VVCT, vvc_instance_idx, period, count, resolution, msg, [num_periods, [alert_level, [timeout, [scope]]]])
-    pwm_check(VVCT, vvc_instance_idx, duty, msg, [num_periods, [alert_level, [timeout, [scope]]]])
+    pwm_check(VVCT, vvc_instance_idx, period, active_time, msg, [num_periods, [timeout, [alert_level, [scope]]]])
+    pwm_check(VVCT, vvc_instance_idx, period, count, resolution, msg, [num_periods, [timeout, [alert_level, [scope]]]])
+    pwm_check(VVCT, vvc_instance_idx, duty, msg, [num_periods, [timeout, [alert_level, [scope]]]])
 
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | Object   | Name               | Dir.   | Type                         | Description                                             |
@@ -1097,13 +1102,13 @@ cycle (the transaction info operation is then CHECK_DUTY). OBSERVER role only.
 | constant | num_periods        | in     | integer                      | Number of consecutive periods to check. Default value   |
 |          |                    |        |                              | is 1.                                                   |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | alert_level        | in     | :ref:`t_alert_level`         | Sets the severity for the alert. Default value is       |
-|          |                    |        |                              | ERROR.                                                  |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | timeout            | in     | time                         | Maximum time of the observation, from the call. Default |
 |          |                    |        |                              | value is C_UNDEFINED_TIME, which leads to using         |
 |          |                    |        |                              | config.timeout. 0 ns means no timeout. See              |
 |          |                    |        |                              | :ref:`pwm_timeout`.                                     |
++----------+--------------------+--------+------------------------------+---------------------------------------------------------+
+| constant | alert_level        | in     | :ref:`t_alert_level`         | Sets the severity for the alert. Default value is       |
+|          |                    |        |                              | ERROR.                                                  |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | scope              | in     | string                       | Describes the scope from which the log/alert            |
 |          |                    |        |                              | originates. Default value is C_VVC_CMD_SCOPE_DEFAULT    |
@@ -1114,9 +1119,9 @@ cycle (the transaction info operation is then CHECK_DUTY). OBSERVER role only.
 
     -- Examples:
     pwm_check(PWM_VVCT, 2, 1 us, 250 ns, "Check one period");
-    pwm_check(PWM_VVCT, 2, 1 us, 250 ns, "Check 5 periods", 5, ERROR, 10 us, C_SCOPE);
-    pwm_check(PWM_VVCT, 2, 1 us, 64, 256, "Check 64/256 duty", 5, ERROR, 10 us, C_SCOPE);
-    pwm_check(PWM_VVCT, 2, 0.25, "Check 25 % duty over 10 periods", 10, ERROR, 15 us, C_SCOPE);
+    pwm_check(PWM_VVCT, 2, 1 us, 250 ns, "Check 5 periods", 5, 10 us, ERROR, C_SCOPE);
+    pwm_check(PWM_VVCT, 2, 1 us, 64, 256, "Check 64/256 duty", 5, 10 us, ERROR, C_SCOPE);
+    pwm_check(PWM_VVCT, 2, 0.25, "Check 25 % duty over 10 periods", 10, 15 us, ERROR, C_SCOPE);
 
 
 .. _pwm_roles:

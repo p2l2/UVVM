@@ -431,12 +431,12 @@ begin
             set_transaction_info(IN_PROGRESS);
             pwm_check(period       => v_cmd.period,
                       active_time  => v_cmd.active_time,
-                      num_periods  => v_cmd.num_periods,
                       msg          => format_msg(v_cmd),
                       pwm          => pwm_vvc_if,
                       terminate    => terminate_current_cmd.is_active,
-                      alert_level  => v_cmd.alert_level,
+                      num_periods  => v_cmd.num_periods,
                       timeout      => v_cmd.timeout,
+                      alert_level  => v_cmd.alert_level,
                       scope        => C_SCOPE,
                       msg_id_panel => v_msg_id_panel,
                       config       => vvc_config.bfm_config);
@@ -447,12 +447,12 @@ begin
           if role_is(OBSERVER) then
             set_transaction_info(IN_PROGRESS);
             pwm_check(duty         => v_cmd.duty,
-                      num_periods  => v_cmd.num_periods,
                       msg          => format_msg(v_cmd),
                       pwm          => pwm_vvc_if,
                       terminate    => terminate_current_cmd.is_active,
-                      alert_level  => v_cmd.alert_level,
+                      num_periods  => v_cmd.num_periods,
                       timeout      => v_cmd.timeout,
+                      alert_level  => v_cmd.alert_level,
                       scope        => C_SCOPE,
                       msg_id_panel => v_msg_id_panel,
                       config       => vvc_config.bfm_config);

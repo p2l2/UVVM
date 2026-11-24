@@ -263,11 +263,11 @@ package pwm_bfm_pkg is
   procedure pwm_check(
     constant period       : in time;
     constant active_time  : in time;
-    constant num_periods  : in integer;
     constant msg          : in string;
     signal   pwm          : in std_logic;
-    constant alert_level  : in t_alert_level    := ERROR;
+    constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant alert_level  : in t_alert_level    := ERROR;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
@@ -278,11 +278,11 @@ package pwm_bfm_pkg is
   -- be set and > 0 ns.
   procedure pwm_check(
     constant duty         : in real;
-    constant num_periods  : in integer;
     constant msg          : in string;
     signal   pwm          : in std_logic;
-    constant alert_level  : in t_alert_level    := ERROR;
+    constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant alert_level  : in t_alert_level    := ERROR;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
@@ -294,11 +294,11 @@ package pwm_bfm_pkg is
     constant period       : in time;
     constant count        : in integer;
     constant resolution   : in integer;
-    constant num_periods  : in integer;
     constant msg          : in string;
     signal   pwm          : in std_logic;
-    constant alert_level  : in t_alert_level    := ERROR;
+    constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant alert_level  : in t_alert_level    := ERROR;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
@@ -322,12 +322,12 @@ package pwm_bfm_pkg is
   procedure pwm_check(
     constant period       : in time;
     constant active_time  : in time;
-    constant num_periods  : in integer;
     constant msg          : in string;
     signal   pwm          : in std_logic;
     signal   terminate    : in std_logic;
-    constant alert_level  : in t_alert_level    := ERROR;
+    constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant alert_level  : in t_alert_level    := ERROR;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
@@ -335,12 +335,12 @@ package pwm_bfm_pkg is
 
   procedure pwm_check(
     constant duty         : in real;
-    constant num_periods  : in integer;
     constant msg          : in string;
     signal   pwm          : in std_logic;
     signal   terminate    : in std_logic;
-    constant alert_level  : in t_alert_level    := ERROR;
+    constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant alert_level  : in t_alert_level    := ERROR;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
@@ -350,12 +350,12 @@ package pwm_bfm_pkg is
     constant period       : in time;
     constant count        : in integer;
     constant resolution   : in integer;
-    constant num_periods  : in integer;
     constant msg          : in string;
     signal   pwm          : in std_logic;
     signal   terminate    : in std_logic;
-    constant alert_level  : in t_alert_level    := ERROR;
+    constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant alert_level  : in t_alert_level    := ERROR;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
@@ -1450,11 +1450,11 @@ package body pwm_bfm_pkg is
   procedure pwm_check(
     constant period       : in time;
     constant active_time  : in time;
-    constant num_periods  : in integer;
     constant msg          : in string;
     signal   pwm          : in std_logic;
-    constant alert_level  : in t_alert_level    := ERROR;
+    constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant alert_level  : in t_alert_level    := ERROR;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
@@ -1466,11 +1466,11 @@ package body pwm_bfm_pkg is
 
   procedure pwm_check(
     constant duty         : in real;
-    constant num_periods  : in integer;
     constant msg          : in string;
     signal   pwm          : in std_logic;
-    constant alert_level  : in t_alert_level    := ERROR;
+    constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant alert_level  : in t_alert_level    := ERROR;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
@@ -1483,11 +1483,11 @@ package body pwm_bfm_pkg is
     constant period       : in time;
     constant count        : in integer;
     constant resolution   : in integer;
-    constant num_periods  : in integer;
     constant msg          : in string;
     signal   pwm          : in std_logic;
-    constant alert_level  : in t_alert_level    := ERROR;
+    constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant alert_level  : in t_alert_level    := ERROR;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
@@ -1522,12 +1522,12 @@ package body pwm_bfm_pkg is
   procedure pwm_check(
     constant period       : in time;
     constant active_time  : in time;
-    constant num_periods  : in integer;
     constant msg          : in string;
     signal   pwm          : in std_logic;
     signal   terminate    : in std_logic;
-    constant alert_level  : in t_alert_level    := ERROR;
+    constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant alert_level  : in t_alert_level    := ERROR;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
@@ -1539,12 +1539,12 @@ package body pwm_bfm_pkg is
 
   procedure pwm_check(
     constant duty         : in real;
-    constant num_periods  : in integer;
     constant msg          : in string;
     signal   pwm          : in std_logic;
     signal   terminate    : in std_logic;
-    constant alert_level  : in t_alert_level    := ERROR;
+    constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant alert_level  : in t_alert_level    := ERROR;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
@@ -1557,12 +1557,12 @@ package body pwm_bfm_pkg is
     constant period       : in time;
     constant count        : in integer;
     constant resolution   : in integer;
-    constant num_periods  : in integer;
     constant msg          : in string;
     signal   pwm          : in std_logic;
     signal   terminate    : in std_logic;
-    constant alert_level  : in t_alert_level    := ERROR;
+    constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
+    constant alert_level  : in t_alert_level    := ERROR;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
