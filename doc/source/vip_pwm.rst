@@ -338,7 +338,7 @@ is ignored.
 * If the periods are not complete at the timeout, a missing-activity alert with severity config.timeout_severity is
   raised and C_PWM_MEASUREMENT_DEFAULT is returned.
 * Without a timeout (neither the call nor config.timeout sets one, or 0 ns), pwm_measure() waits until the periods are
-  complete, on a constant line for ever. In the VVC, the timeout of await_completion() then ends the wait.
+  complete, on a constant line for ever. For the VVC, see :ref:`pwm_timeout`.
 * Invalid levels and pulses or gaps shorter than config.min_pulse_width raise an ERROR alert.
 
 .. code-block::
@@ -603,6 +603,9 @@ Observation rules and timeout
   (num_periods + 2) * (period + config.period_tolerance): one period to reach the first active-going edge, the periods
   themselves and one period of margin. pwm_measure() and pwm_check() with duty then run without a timeout.
 * 0 ns means no timeout; a negative timeout gives a TB_ERROR.
+* Without a timeout, an observation on a constant line never ends. In the VVC, the command then blocks all later
+  commands of that VVC instance: the timeout of await_completion() raises an alert in the sequencer but does not end the
+  command. terminate_current_command() ends it at once, without an alert.
 * An edge exactly at the end of the timeout is not counted. Leave some margin, e.g. (num_periods + 2) periods.
 * An edge is a change between '0' and '1'. Any other value raises an alert each time the line changes to it; an invalid
   value that returns to the same level is no edge. Before the first active-going edge, 'Z' is tolerated with

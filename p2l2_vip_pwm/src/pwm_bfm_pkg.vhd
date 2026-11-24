@@ -238,9 +238,9 @@ package pwm_bfm_pkg is
   -- Measures num_periods complete periods and returns the mean period and active time (each rounded to the nearest
   -- simulator resolution unit) and the duty cycle of the sums. If no active-going edge comes before the timeout, the
   -- result is the constant level (0 % or 100 %), with an alert at config.constant_level_severity (default NO_ALERT).
-  -- Without a timeout, pwm_measure() waits until the periods are complete. Fewer complete periods at the timeout
-  -- raise a missing-activity alert and return C_PWM_MEASUREMENT_DEFAULT. Invalid levels and pulses shorter than
-  -- config.min_pulse_width raise an ERROR.
+  -- Without a timeout, pwm_measure() waits until the periods are complete, on a constant line for ever. Fewer
+  -- complete periods at the timeout raise a missing-activity alert and return C_PWM_MEASUREMENT_DEFAULT. Invalid
+  -- levels and pulses shorter than config.min_pulse_width raise an ERROR.
   procedure pwm_measure(
     variable result       : out t_pwm_measurement;
     constant msg          : in string;
