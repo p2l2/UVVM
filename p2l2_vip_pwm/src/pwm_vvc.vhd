@@ -466,7 +466,7 @@ begin
             -- Delay specified using time
             wait until terminate_current_cmd.is_active = '1' for v_cmd.delay;
           else
-            -- Delay specified using integer: there is no clock (A-03)
+            -- Delay specified using integer: there is no clock
             alert(TB_ERROR, "insert_delay() with a number of clock cycles is not supported, the PWM VVC has no clock. Use a time." &
                   format_msg(v_cmd), C_SCOPE);
           end if;

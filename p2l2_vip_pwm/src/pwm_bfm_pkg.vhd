@@ -637,7 +637,7 @@ package body pwm_bfm_pkg is
   ---------------------------------------------------------------------------------
   -- Internal: observation
   ---------------------------------------------------------------------------------
-  -- The edge timeout (arch 6.4): the per-call value, else config.timeout, else 2 * period if a period is given
+  -- The edge timeout: the per-call value, else config.timeout, else 2 * period if a period is given
   -- (period > 0 ns), else C_UNDEFINED_TIME.
   function resolve_timeout(
     constant timeout : in time;
@@ -762,8 +762,8 @@ package body pwm_bfm_pkg is
     end loop;
   end procedure;
 
-  -- Waits for the next active-going edge (A-15). Each edge on the way restarts the timeout. timed_out is true if the
-  -- line did not change for the timeout; it then holds a constant level.
+  -- Waits for the next active-going edge; a period in progress is ignored. Each edge on the way restarts the timeout.
+  -- timed_out is true if the line did not change for the timeout; it then holds a constant level.
   procedure await_period_start(
     signal   pwm           : in std_logic;
     constant timeout       : in time;
@@ -1203,7 +1203,7 @@ package body pwm_bfm_pkg is
       log_terminated(C_PROC_NAME, msg, scope, msg_id_panel);
       return;
     elsif v_timed_out then
-      -- No edge within the timeout: a constant level (spec 5.2), reported as result
+      -- No edge within the timeout: a constant level, reported as result
       v_result.is_constant    := true;
       v_result.constant_level := pwm;
       if pwm = active_level(config) then

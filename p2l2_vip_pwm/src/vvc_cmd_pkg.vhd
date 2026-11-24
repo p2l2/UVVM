@@ -98,7 +98,7 @@ package vvc_cmd_pkg is
   -- - t_vvc_result includes the return value of the procedure in the BFM. It can also
   --   be defined as a record if multiple values shall be transported from the BFM
   --==========================================================================================
-  -- Result of pwm_measure() (arch 7.2)
+  -- Result of pwm_measure()
   subtype t_vvc_result is t_pwm_measurement;
 
   type t_vvc_result_queue_element is record

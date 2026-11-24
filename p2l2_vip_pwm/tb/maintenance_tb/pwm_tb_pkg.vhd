@@ -72,7 +72,7 @@ package pwm_tb_pkg is
     constant num_periods : in positive) return t_period_param_array;
 
   -- Edges expected when the periods in 'params' are generated back to back from 'start', starting from
-  -- 'initial_level' and returning to 'idle' after the last period (spec 3.4, 3.5, A-08).
+  -- 'initial_level' and returning to 'idle' after the last period (for center alignment, an odd t_off gives the extra unit to the second gap).
   function expected_edges(
     constant start         : in time;
     constant initial_level : in std_logic;

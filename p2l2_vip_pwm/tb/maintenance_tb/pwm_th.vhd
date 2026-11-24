@@ -11,7 +11,7 @@
 ----------------------------------------------------------------------------------------------------------------------------------
 
 ------------------------------------------------------------------------------------------
--- Description   : Test harness of pwm_vvc_tb (arch section 11):
+-- Description   : Test harness of pwm_vvc_tb:
 --                 - i1_pwm_vvc (GENERATOR, idx 1) and i2_pwm_vvc (OBSERVER, idx 2) on the loopback line pwm_loop
 --                 - i3_pwm_vvc (OBSERVER, idx 3) on pwm_inject, driven by the testbench for error injection
 --                 - an edge logger that records every event on pwm_loop in shared_th_edge_log, as independent

@@ -30,7 +30,7 @@ use work.pwm_tb_pkg.all;
 -- Test case entity
 -- BFM TB without VVCs: p_main calls the BFM procedures on 'pwm', p_edge_logger records every event on 'pwm'. The
 -- expected edges come from the reference model in pwm_tb_pkg. For the observation tests, p_stimulus drives 'pwm_obs'
--- with segments or the generator BFM, and p_main observes it. Test case IDs refer to doc/pwm_vvc_reqs.md.
+-- with segments or the generator BFM, and p_main observes it.
 entity pwm_bfm_tb is
   generic(
     GC_TESTCASE : string := "UVVM"
@@ -195,7 +195,7 @@ begin
       check_value(shared_edge_log.count, 0, ERROR, "line unchanged: " & msg, C_SCOPE, ID_SEQUENCER_SUB);
     end procedure;
 
-    -- TC-001 / TC-004: all periods with the active times 1 unit, T/4, T/2, T - 1 unit
+    -- All periods with the active times 1 unit, T/4, T/2, T - 1 unit
     procedure test_period_set(
       constant msg : string) is
     begin
@@ -207,7 +207,7 @@ begin
       end loop;
     end procedure;
 
-    -- TC-006: the periods given back to back with pwm_drive_period(), no idle in between
+    -- The periods given back to back with pwm_drive_period(), no idle in between
     procedure test_drive_periods(
       constant params : t_period_param_array;
       constant msg    : string) is
@@ -222,7 +222,7 @@ begin
       check_generated(params, msg);
     end procedure;
 
-    -- TC-012: generates num_periods periods with jitter and checks them against the ideal (unjittered) edges
+    -- Generates num_periods periods with jitter and checks them against the ideal (unjittered) edges
     procedure test_jitter(
       constant period      : time;
       constant active_time : time;
@@ -239,7 +239,7 @@ begin
                            v_config.jitter, msg, C_SCOPE);
     end procedure;
 
-    -- TC-012: the logged edges relative to v_start
+    -- The logged edges relative to v_start
     procedure save_edges(
       variable edges : out t_edge_array) is
       variable v_edge : t_edge;
@@ -332,7 +332,7 @@ begin
       check_value(now, v_start + delay, ERROR, "completion time: " & msg, C_SCOPE, ID_SEQUENCER_SUB);
     end procedure;
 
-    -- TC-101/102: measures the output of pwm_generate() (3 periods) and checks the result and the completion time
+    -- Measures the output of pwm_generate() (3 periods) and checks the result and the completion time
     procedure test_measure_generated(
       constant period      : time;
       constant active_time : time;
@@ -371,13 +371,13 @@ begin
     settle;
 
     --============================================================================================================================
-    if GC_TESTCASE = "TC_001" then
-      -- REQ-001, REQ-009, REQ-010: left-aligned, active-high
+    if GC_TESTCASE = "left_aligned_active_high_timing" then
+      -- Left-aligned, active-high
       --============================================================================================================================
-      log(ID_LOG_HDR, "TC-001: left-aligned, active-high, exact edge times", C_SCOPE);
-      test_period_set("TC-001");
+      log(ID_LOG_HDR, "Left-aligned, active-high, exact edge times", C_SCOPE);
+      test_period_set("active-high");
 
-      log(ID_LOG_HDR, "TC-001: k=1 and k=5 periods, hard-coded edges", C_SCOPE);
+      log(ID_LOG_HDR, "K=1 and k=5 periods, hard-coded edges", C_SCOPE);
       start_test;
       pwm_generate(10 ns, 3 ns, 1, "k=1", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       settle;
@@ -389,10 +389,10 @@ begin
       check_edges_rel((0 ns, 3 ns, 10 ns, 13 ns, 20 ns, 23 ns, 30 ns, 33 ns, 40 ns, 43 ns), "1010101010", "k=5");
 
     --============================================================================================================================
-    elsif GC_TESTCASE = "TC_002" then
-      -- REQ-002: active time, ratio and counter value give the same waveform
+    elsif GC_TESTCASE = "duty_formats_and_rounding" then
+      -- Active time, ratio and counter value give the same waveform
       --============================================================================================================================
-      log(ID_LOG_HDR, "TC-002: t_on 25 ns, D 0.25 and 64/256 at T 100 ns", C_SCOPE);
+      log(ID_LOG_HDR, "T_on 25 ns, D 0.25 and 64/256 at T 100 ns", C_SCOPE);
       start_test;
       pwm_generate(100 ns, 25 ns, 2, "t_on", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       settle;
@@ -406,7 +406,7 @@ begin
       settle;
       check_edges_rel((0 ns, 25 ns, 100 ns, 125 ns), "1010", "64/256");
 
-      log(ID_LOG_HDR, "TC-002: rounding to the nearest resolution unit", C_SCOPE);
+      log(ID_LOG_HDR, "Rounding to the nearest resolution unit", C_SCOPE);
       -- Periods of a few resolution units give time stamps with more decimals than the log shows: UVVM warns once
       increment_expected_alerts(TB_WARNING, 1, "log time stamp truncated");
       start_test;
@@ -442,10 +442,10 @@ begin
       check_generated(repeat_period(10 ns, 10 ns, 2), "D 1.0");
 
     --============================================================================================================================
-    elsif GC_TESTCASE = "TC_003" then
-      -- REQ-003: invalid generation parameters, one TB_ERROR each, line unchanged
+    elsif GC_TESTCASE = "invalid_generation_parameters" then
+      -- Invalid generation parameters, one TB_ERROR each, line unchanged
       --============================================================================================================================
-      log(ID_LOG_HDR, "TC-003: invalid generation parameters", C_SCOPE);
+      log(ID_LOG_HDR, "Invalid generation parameters", C_SCOPE);
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "period 0 ns");
       start_test;
       pwm_generate(0 ns, 0 ns, 1, "period 0 ns", pwm, C_SCOPE, shared_msg_id_panel, v_config);
@@ -496,7 +496,7 @@ begin
       pwm_generate(10 ns, 5 ns, 0, "k 0", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       check_rejected("k 0");
 
-      log(ID_LOG_HDR, "TC-003: invalid pwm_drive_period() parameters", C_SCOPE);
+      log(ID_LOG_HDR, "Invalid pwm_drive_period() parameters", C_SCOPE);
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "pwm_drive_period() period 0 ns");
       start_test;
       pwm_drive_period(0 ns, 0 ns, v_seed1, v_seed2, "period 0 ns", pwm, C_SCOPE, shared_msg_id_panel, v_config);
@@ -514,37 +514,37 @@ begin
       check_rejected("pwm_drive_period() jitter -1 ns");
       v_config.jitter := 0 ns;
 
-      log(ID_LOG_HDR, "TC-003: a valid call afterwards still works", C_SCOPE);
+      log(ID_LOG_HDR, "A valid call afterwards still works", C_SCOPE);
       test_generate(10 ns, 5 ns, 2, "valid after invalid");
 
     --============================================================================================================================
-    elsif GC_TESTCASE = "TC_004" then
-      -- REQ-004: active-low
+    elsif GC_TESTCASE = "active_low_polarity" then
+      -- Active-low
       --============================================================================================================================
-      log(ID_LOG_HDR, "TC-004: active-low, idle level inverted", C_SCOPE);
+      log(ID_LOG_HDR, "Active-low, idle level inverted", C_SCOPE);
       v_config.polarity := ACTIVE_LOW;
       pwm_drive_idle("", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       settle;
       check_value(pwm, '1', MATCH_EXACT, ERROR, "active-low idle", C_SCOPE);
-      test_period_set("TC-004 active-low");
+      test_period_set("active-low");
       start_test;
       pwm_generate(10 ns, 3 ns, 2, "hard-coded", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       settle;
       check_edges_rel((0 ns, 3 ns, 10 ns, 13 ns), "0101", "active-low hard-coded");
 
     --============================================================================================================================
-    elsif GC_TESTCASE = "TC_005" then
-      -- REQ-005, REQ-006: right- and center-aligned
+    elsif GC_TESTCASE = "right_and_center_alignment" then
+      -- Right- and center-aligned
       --============================================================================================================================
-      log(ID_LOG_HDR, "TC-005: right-aligned", C_SCOPE);
+      log(ID_LOG_HDR, "Right-aligned", C_SCOPE);
       v_config.alignment := RIGHT_ALIGNED;
       start_test;
       pwm_generate(10 ns, 3 ns, 2, "right", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       settle;
       check_edges_rel((7 ns, 10 ns, 17 ns, 20 ns), "1010", "right-aligned T 10 ns, t_on 3 ns");
-      test_period_set("TC-005 right-aligned");
+      test_period_set("right-aligned");
 
-      log(ID_LOG_HDR, "TC-005: center-aligned", C_SCOPE);
+      log(ID_LOG_HDR, "Center-aligned", C_SCOPE);
       -- Periods of a few resolution units give time stamps with more decimals than the log shows: UVVM warns once
       increment_expected_alerts(TB_WARNING, 1, "log time stamp truncated");
       v_config.alignment := CENTER_ALIGNED;
@@ -557,14 +557,14 @@ begin
       settle;
       check_edges_rel((3 * C_RESOLUTION, 6 * C_RESOLUTION), "10", "center-aligned, odd t_off: extra unit in the second gap");
       start_test;
-      pwm_generate(10 ns, 3 ns, 1, "center spec 7", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_generate(10 ns, 3 ns, 1, "center T 10 ns, t_on 3 ns", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       settle;
       if C_RESOLUTION <= 100 ps then
         check_edges_rel((3.5 ns, 6.5 ns), "10", "center-aligned T 10 ns, t_on 3 ns (spec section 7)");
       end if;
-      test_period_set("TC-005 center-aligned");
+      test_period_set("center-aligned");
 
-      log(ID_LOG_HDR, "TC-005: right- and center-aligned, active-low", C_SCOPE);
+      log(ID_LOG_HDR, "Right- and center-aligned, active-low", C_SCOPE);
       v_config.polarity  := ACTIVE_LOW;
       v_config.alignment := RIGHT_ALIGNED;
       pwm_drive_idle("", pwm, C_SCOPE, shared_msg_id_panel, v_config);
@@ -573,12 +573,12 @@ begin
       test_generate(10 ns, 3 ns, 3, "center-aligned active-low");
 
     --============================================================================================================================
-    elsif GC_TESTCASE = "TC_006" then
-      -- REQ-007: 0 % and 100 %, no glitches when switching
+    elsif GC_TESTCASE = "constant_levels_without_glitches" then
+      -- 0 % and 100 %, no glitches when switching
       --============================================================================================================================
       for alignment in t_pwm_alignment loop
         v_config.alignment := alignment;
-        log(ID_LOG_HDR, "TC-006: 0 % and 100 % for 10 periods, " & to_string(alignment), C_SCOPE);
+        log(ID_LOG_HDR, "0 % and 100 % for 10 periods, " & to_string(alignment), C_SCOPE);
         start_test;
         pwm_generate(10 ns, 0 ns, 10, "0 %", pwm, C_SCOPE, shared_msg_id_panel, v_config);
         check_generated(repeat_period(10 ns, 0 ns, 10), "0 % " & to_string(alignment));
@@ -588,11 +588,11 @@ begin
         check_generated(repeat_period(10 ns, 10 ns, 10), "100 % " & to_string(alignment));
         check_value(shared_edge_log.count, 2, ERROR, "100 %: only the edges from and to idle", C_SCOPE);
 
-        log(ID_LOG_HDR, "TC-006: 50 % -> 0 % -> 50 % -> 100 % -> 50 % back to back, " & to_string(alignment), C_SCOPE);
+        log(ID_LOG_HDR, "50 % -> 0 % -> 50 % -> 100 % -> 50 % back to back, " & to_string(alignment), C_SCOPE);
         test_drive_periods(C_DUTY_SEQUENCE, "duty sequence " & to_string(alignment));
       end loop;
 
-      log(ID_LOG_HDR, "TC-006: duty sequence, hard-coded edges", C_SCOPE);
+      log(ID_LOG_HDR, "Duty sequence, hard-coded edges", C_SCOPE);
       v_config.alignment := LEFT_ALIGNED;
       test_drive_periods(C_DUTY_SEQUENCE, "duty sequence left");
       check_edges_rel((0 ns, 5 ns, 20 ns, 25 ns, 30 ns, 45 ns), "101010", "duty sequence left, hard-coded");
@@ -601,12 +601,12 @@ begin
       check_edges_rel((5 ns, 10 ns, 25 ns, 40 ns, 45 ns, 50 ns), "101010", "duty sequence right, hard-coded");
 
     --============================================================================================================================
-    elsif GC_TESTCASE = "TC_007" then
-      -- REQ-008: idle level options (BFM part; initial and after-abort idle are tested on the VVC)
+    elsif GC_TESTCASE = "idle_level_options" then
+      -- Idle level options (BFM part; initial and after-abort idle are tested on the VVC)
       --============================================================================================================================
       for polarity in t_pwm_polarity loop
         for idle_level in t_pwm_idle_level loop
-          log(ID_LOG_HDR, "TC-007: " & to_string(polarity) & ", " & to_string(idle_level), C_SCOPE);
+          log(ID_LOG_HDR, "" & to_string(polarity) & ", " & to_string(idle_level), C_SCOPE);
           v_config.polarity   := polarity;
           v_config.idle_level := idle_level;
           pwm_drive_idle("", pwm, C_SCOPE, shared_msg_id_panel, v_config);
@@ -617,10 +617,10 @@ begin
       end loop;
 
     --============================================================================================================================
-    elsif GC_TESTCASE = "TC_012" then
-      -- REQ-015: bounded, non-accumulating, reproducible jitter
+    elsif GC_TESTCASE = "jitter" then
+      -- Bounded, non-accumulating, reproducible jitter
       --============================================================================================================================
-      log(ID_LOG_HDR, "TC-012: j = 5 ns, T = 100 ns, t_on = 50 ns, 1000 periods", C_SCOPE);
+      log(ID_LOG_HDR, "J = 5 ns, T = 100 ns, t_on = 50 ns, 1000 periods", C_SCOPE);
       v_config.jitter := 5 ns;
       test_jitter(100 ns, 50 ns, 1000, "j 5 ns");
       save_edges(v_edges_a);
@@ -638,7 +638,7 @@ begin
       end loop;
       check_value(v_differs, ERROR, "at least two different edge offsets", C_SCOPE);
 
-      log(ID_LOG_HDR, "TC-012: the same seeds give the same waveform, other seeds a different one", C_SCOPE);
+      log(ID_LOG_HDR, "The same seeds give the same waveform, other seeds a different one", C_SCOPE);
       test_jitter(100 ns, 50 ns, 1000, "j 5 ns, same seeds");
       save_edges(v_edges_b);
       check_value(v_edges_a = v_edges_b, ERROR, "same seeds: identical edges", C_SCOPE);
@@ -648,11 +648,11 @@ begin
       check_value(v_edges_a /= v_edges_b, ERROR, "other seeds: different edges", C_SCOPE);
       v_config.jitter_seed1 := C_PWM_BFM_CONFIG_DEFAULT.jitter_seed1;
 
-      log(ID_LOG_HDR, "TC-012: j = 30 ns with t_on = 50 ns: no pulse or gap below 1 unit, no missing pulse", C_SCOPE);
+      log(ID_LOG_HDR, "J = 30 ns with t_on = 50 ns: no pulse or gap below 1 unit, no missing pulse", C_SCOPE);
       v_config.jitter := 30 ns;
       test_jitter(100 ns, 50 ns, 1000, "j 30 ns");
 
-      log(ID_LOG_HDR, "TC-012: jitter larger than the pulse and the gap", C_SCOPE);
+      log(ID_LOG_HDR, "Jitter larger than the pulse and the gap", C_SCOPE);
       v_config.jitter := 5 ns;
       test_jitter(100 ns, C_RESOLUTION, 500, "j 5 ns, t_on 1 unit");
       test_jitter(100 ns, 100 ns - C_RESOLUTION, 500, "j 5 ns, t_on T - 1 unit");
@@ -660,7 +660,7 @@ begin
       increment_expected_alerts(TB_WARNING, 1, "log time stamp truncated");
       test_jitter(10 * C_RESOLUTION, 5 * C_RESOLUTION, 501, "j 5 ns, T 10 units");
 
-      log(ID_LOG_HDR, "TC-012: right- and center-aligned, active-low", C_SCOPE);
+      log(ID_LOG_HDR, "Right- and center-aligned, active-low", C_SCOPE);
       for alignment in RIGHT_ALIGNED to CENTER_ALIGNED loop
         v_config.alignment := alignment;
         test_jitter(100 ns, 30 ns, 500, "j 5 ns, " & to_string(alignment));
@@ -671,16 +671,16 @@ begin
       v_config := C_PWM_BFM_CONFIG_DEFAULT;
       pwm_drive_idle("", pwm, C_SCOPE, shared_msg_id_panel, v_config);
 
-      log(ID_LOG_HDR, "TC-012: 0 % and 100 % are not affected by jitter", C_SCOPE);
+      log(ID_LOG_HDR, "0 % and 100 % are not affected by jitter", C_SCOPE);
       v_config.jitter := 5 ns;
       test_generate(100 ns, 0 ns, 10, "j 5 ns, 0 %");
       test_generate(100 ns, 100 ns, 10, "j 5 ns, 100 %");
 
-      log(ID_LOG_HDR, "TC-012: j = 0 ns gives exact edges", C_SCOPE);
+      log(ID_LOG_HDR, "J = 0 ns gives exact edges", C_SCOPE);
       v_config.jitter := 0 ns;
       test_generate(100 ns, 50 ns, 10, "j 0 ns");
 
-      log(ID_LOG_HDR, "TC-012: j < 0 ns is rejected", C_SCOPE);
+      log(ID_LOG_HDR, "J < 0 ns is rejected", C_SCOPE);
       v_config.jitter := -1 ns;
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "jitter < 0 ns");
       start_test;
@@ -688,14 +688,14 @@ begin
       check_rejected("j -1 ns");
 
     --============================================================================================================================
-    elsif GC_TESTCASE = "TC_101" then
-      -- REQ-101: measure one complete period, starting at the next active-going edge
+    elsif GC_TESTCASE = "measure_one_period" then
+      -- Measure one complete period, starting at the next active-going edge
       --============================================================================================================================
       -- Periods of a few resolution units give time stamps with more decimals than the log shows: UVVM warns once
       increment_expected_alerts(TB_WARNING, 1, "log time stamp truncated");
       for alignment in t_pwm_alignment loop
         v_config.alignment := alignment;
-        log(ID_LOG_HDR, "TC-101: measure the generator BFM output, " & to_string(alignment), C_SCOPE);
+        log(ID_LOG_HDR, "Measure the generator BFM output, " & to_string(alignment), C_SCOPE);
         for i in C_PERIODS'range loop
           test_measure_generated(C_PERIODS(i), C_RESOLUTION, "T=" & to_string(C_PERIODS(i)) & ", t_on=1 unit, " & to_string(alignment));
           test_measure_generated(C_PERIODS(i), C_PERIODS(i) / 4, "T=" & to_string(C_PERIODS(i)) & ", t_on=T/4, " & to_string(alignment));
@@ -706,7 +706,7 @@ begin
       end loop;
       v_config.alignment := LEFT_ALIGNED;
 
-      log(ID_LOG_HDR, "TC-101: request mid-pulse and mid-gap: the period in progress is ignored", C_SCOPE);
+      log(ID_LOG_HDR, "Request mid-pulse and mid-gap: the period in progress is ignored", C_SCOPE);
       -- Three different periods: 40/100, 30/100, 20/100
       stimulate(seg('1', 40 ns) & seg('0', 60 ns) & seg('1', 30 ns) & seg('0', 70 ns) & seg('1', 20 ns) & seg('0', 80 ns));
       wait for 10 ns;
@@ -721,10 +721,10 @@ begin
       await_stimulus;
 
     --============================================================================================================================
-    elsif GC_TESTCASE = "TC_102" then
-      -- REQ-102: measurement respects the polarity
+    elsif GC_TESTCASE = "measure_active_low" then
+      -- Measurement respects the polarity
       --============================================================================================================================
-      log(ID_LOG_HDR, "TC-102: active-low gives the same T and t_on as active-high", C_SCOPE);
+      log(ID_LOG_HDR, "Active-low gives the same T and t_on as active-high", C_SCOPE);
       v_config.polarity := ACTIVE_LOW;
       set_line('1');
       for i in C_PERIODS'range loop
@@ -734,7 +734,7 @@ begin
       test_measure_generated(100 ns, 30 ns, "active-low, center-aligned");
       v_config.alignment := LEFT_ALIGNED;
 
-      log(ID_LOG_HDR, "TC-102: an active-low signal measured as active-high gives t_on = T - t_on", C_SCOPE);
+      log(ID_LOG_HDR, "An active-low signal measured as active-high gives t_on = T - t_on", C_SCOPE);
       stimulate_bfm(100 ns, 30 ns, 3, v_config);
       v_config.polarity := ACTIVE_HIGH;
       pwm_measure(v_result, "active-low line, active-high config", pwm_obs, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
@@ -743,10 +743,10 @@ begin
       await_stimulus;
 
     --============================================================================================================================
-    elsif GC_TESTCASE = "TC_103" then
-      -- REQ-103, REQ-106: constant level (0 % / 100 %)
+    elsif GC_TESTCASE = "constant_level_measure_and_check" then
+      -- Constant level (0 % / 100 %)
       --============================================================================================================================
-      log(ID_LOG_HDR, "TC-103: pwm_measure() on a constant line reports the constant level, no alert", C_SCOPE);
+      log(ID_LOG_HDR, "Pwm_measure() on a constant line reports the constant level, no alert", C_SCOPE);
       set_line('0');
       v_start := now;
       pwm_measure(v_result, "constant 0", pwm_obs, 500 ns, C_SCOPE, shared_msg_id_panel, v_config);
@@ -769,7 +769,7 @@ begin
       check_constant_result('0', 0.0, "1 then constant 0");
       check_completion(550 ns, "1 then constant 0");
 
-      log(ID_LOG_HDR, "TC-103: constant 'Z' is a result if idle_level is IDLE_HIGH_Z, else an ERROR", C_SCOPE);
+      log(ID_LOG_HDR, "Constant 'Z' is a result if idle_level is IDLE_HIGH_Z, else an ERROR", C_SCOPE);
       set_line('Z');
       v_config.idle_level := IDLE_HIGH_Z;
       pwm_measure(v_result, "constant Z, IDLE_HIGH_Z", pwm_obs, 500 ns, C_SCOPE, shared_msg_id_panel, v_config);
@@ -779,7 +779,7 @@ begin
       pwm_measure(v_result, "constant Z, IDLE_INACTIVE", pwm_obs, 500 ns, C_SCOPE, shared_msg_id_panel, v_config);
       check_constant_result('Z', 0.0, "constant Z, IDLE_INACTIVE");
 
-      log(ID_LOG_HDR, "TC-103: pwm_check() with active_time and with duty, 0 % and 100 %", C_SCOPE);
+      log(ID_LOG_HDR, "Pwm_check() with active_time and with duty, 0 % and 100 %", C_SCOPE);
       set_line('0');
       v_start := now;
       pwm_check(100 ns, 0 ns, 1, "0 % on 0", pwm_obs, ERROR, 500 ns, C_SCOPE, shared_msg_id_panel, v_config);
@@ -797,7 +797,7 @@ begin
       pwm_check(100 ns, 0 ns, 1, "0 % on 1, active-low", pwm_obs, ERROR, 500 ns, C_SCOPE, shared_msg_id_panel, v_config);
       v_config.polarity := ACTIVE_HIGH;
 
-      log(ID_LOG_HDR, "TC-103: wrong level and an edge inside the window raise one alert each", C_SCOPE);
+      log(ID_LOG_HDR, "Wrong level and an edge inside the window raise one alert each", C_SCOPE);
       increment_expected_alerts_and_stop_limit(ERROR, 1, "0 % on 1");
       v_start := now;
       pwm_check(100 ns, 0 ns, 1, "0 % on 1", pwm_obs, ERROR, 500 ns, C_SCOPE, shared_msg_id_panel, v_config);
@@ -817,16 +817,16 @@ begin
       check_completion(100 ns, "D 1.0, edge after 100 ns");
 
     --============================================================================================================================
-    elsif GC_TESTCASE = "TC_104" then
-      -- REQ-104, REQ-105: check T and t_on with inclusive tolerances
+    elsif GC_TESTCASE = "check_period_and_active_time_tolerances" then
+      -- Check T and t_on with inclusive tolerances
       --============================================================================================================================
-      log(ID_LOG_HDR, "TC-104: correct signal, no alert", C_SCOPE);
+      log(ID_LOG_HDR, "Correct signal, no alert", C_SCOPE);
       stimulate(pwm_wave(100 ns, 25 ns, 3) & seg('1', 25 ns));
       pwm_check(100 ns, 25 ns, 3, "exact", pwm_obs, ERROR, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(300 ns, "exact, k=3");
       await_stimulus;
 
-      log(ID_LOG_HDR, "TC-104: count/resolution overload, converted to t_on", C_SCOPE);
+      log(ID_LOG_HDR, "Count/resolution overload, converted to t_on", C_SCOPE);
       stimulate(pwm_wave(100 ns, 25 ns, 3) & seg('1', 25 ns));
       pwm_check(100 ns, 1, 4, 3, "count 1/4", pwm_obs, ERROR, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(300 ns, "count 1/4, k=3");
@@ -837,7 +837,7 @@ begin
       check_completion(100 ns, "count 3/10");
       await_stimulus;
 
-      log(ID_LOG_HDR, "TC-104: T off by more than the tolerance", C_SCOPE);
+      log(ID_LOG_HDR, "T off by more than the tolerance", C_SCOPE);
       increment_expected_alerts_and_stop_limit(ERROR, 1, "T 101 ns, tolerance 0 ns");
       stimulate(pwm_wave(101 ns, 25 ns, 1) & seg('1', 25 ns));
       pwm_check(100 ns, 25 ns, 1, "T 101 ns, tolerance 0 ns", pwm_obs, ERROR, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, v_config);
@@ -848,7 +848,7 @@ begin
       pwm_check(100 ns, 25 ns, 1, "T 101 ns, WARNING", pwm_obs, WARNING, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
-      log(ID_LOG_HDR, "TC-104: period tolerance 1 ns: +-1 ns passes, +-(1 ns + 1 unit) fails", C_SCOPE);
+      log(ID_LOG_HDR, "Period tolerance 1 ns: +-1 ns passes, +-(1 ns + 1 unit) fails", C_SCOPE);
       -- Edges 1 resolution unit off give time stamps with more decimals than the log shows: UVVM warns once
       increment_expected_alerts(TB_WARNING, 1, "log time stamp truncated");
       v_config.period_tolerance := 1 ns;
@@ -868,7 +868,7 @@ begin
       await_stimulus;
       v_config.period_tolerance := 0 ns;
 
-      log(ID_LOG_HDR, "TC-104: active time tolerance 1 ns: +-1 ns passes, +-(1 ns + 1 unit) fails", C_SCOPE);
+      log(ID_LOG_HDR, "Active time tolerance 1 ns: +-1 ns passes, +-(1 ns + 1 unit) fails", C_SCOPE);
       increment_expected_alerts_and_stop_limit(ERROR, 1, "t_on 26 ns, tolerance 0 ns");
       stimulate(pwm_wave(100 ns, 26 ns, 1) & seg('1', 25 ns));
       pwm_check(100 ns, 25 ns, 1, "t_on 26 ns, tolerance 0 ns", pwm_obs, ERROR, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, v_config);
@@ -890,30 +890,30 @@ begin
       await_stimulus;
       v_config.active_time_tolerance := 0 ns;
 
-      log(ID_LOG_HDR, "TC-104: T and t_on wrong in the same period: one alert", C_SCOPE);
+      log(ID_LOG_HDR, "T and t_on wrong in the same period: one alert", C_SCOPE);
       increment_expected_alerts_and_stop_limit(ERROR, 1, "T and t_on wrong");
       stimulate(pwm_wave(110 ns, 30 ns, 1) & seg('1', 25 ns));
       pwm_check(100 ns, 25 ns, 1, "T 110 ns, t_on 30 ns", pwm_obs, ERROR, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
     --============================================================================================================================
-    elsif GC_TESTCASE = "TC_105" then
-      -- REQ-107: k consecutive periods, one alert per failing period
+    elsif GC_TESTCASE = "check_multiple_periods" then
+      -- K consecutive periods, one alert per failing period
       --============================================================================================================================
-      log(ID_LOG_HDR, "TC-105: k=5, all correct", C_SCOPE);
+      log(ID_LOG_HDR, "K=5, all correct", C_SCOPE);
       stimulate(pwm_wave(100 ns, 25 ns, 5) & seg('1', 25 ns));
       pwm_check(100 ns, 25 ns, 5, "k=5 correct", pwm_obs, ERROR, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(500 ns, "k=5 correct");
       await_stimulus;
 
-      log(ID_LOG_HDR, "TC-105: k=5, T of period 3 wrong: one alert naming period 3/5", C_SCOPE);
+      log(ID_LOG_HDR, "K=5, T of period 3 wrong: one alert naming period 3/5", C_SCOPE);
       increment_expected_alerts_and_stop_limit(ERROR, 1, "period 3/5");
       stimulate(pwm_wave(100 ns, 25 ns, 2) & pwm_wave(110 ns, 25 ns, 1) & pwm_wave(100 ns, 25 ns, 2) & seg('1', 25 ns));
       pwm_check(100 ns, 25 ns, 5, "k=5, period 3 wrong", pwm_obs, ERROR, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(510 ns, "k=5, period 3 wrong");
       await_stimulus;
 
-      log(ID_LOG_HDR, "TC-105: k=5, t_on of periods 2 and 5 wrong: two alerts", C_SCOPE);
+      log(ID_LOG_HDR, "K=5, t_on of periods 2 and 5 wrong: two alerts", C_SCOPE);
       increment_expected_alerts_and_stop_limit(ERROR, 2, "periods 2/5 and 5/5");
       stimulate(pwm_wave(100 ns, 25 ns, 1) & pwm_wave(100 ns, 30 ns, 1) & pwm_wave(100 ns, 25 ns, 2) & pwm_wave(100 ns, 20 ns, 1) &
                 seg('1', 25 ns));
@@ -921,10 +921,10 @@ begin
       await_stimulus;
 
     --============================================================================================================================
-    elsif GC_TESTCASE = "TC_106" then
-      -- REQ-108: invalid levels during a measurement
+    elsif GC_TESTCASE = "invalid_levels_during_observation" then
+      -- Invalid levels during a measurement
       --============================================================================================================================
-      log(ID_LOG_HDR, "TC-106: 1 ns of X, U, Z, W, - inside the pulse: one ERROR each, timing unaffected", C_SCOPE);
+      log(ID_LOG_HDR, "1 ns of X, U, Z, W, - inside the pulse: one ERROR each, timing unaffected", C_SCOPE);
       for value in std_ulogic loop
         if value /= '0' and value /= '1' and value /= 'L' and value /= 'H' then
           increment_expected_alerts_and_stop_limit(ERROR, 1, "'" & to_string(value) & "' inside the pulse");
@@ -935,7 +935,7 @@ begin
         end if;
       end loop;
 
-      log(ID_LOG_HDR, "TC-106: X inside the gap, and inside a pwm_check() at alert_level WARNING", C_SCOPE);
+      log(ID_LOG_HDR, "X inside the gap, and inside a pwm_check() at alert_level WARNING", C_SCOPE);
       increment_expected_alerts_and_stop_limit(ERROR, 1, "X inside the gap");
       stimulate(seg('1', 25 ns) & seg('0', 30 ns) & seg('X', 1 ns) & seg('0', 44 ns) & seg('1', 25 ns));
       pwm_measure(v_result, "X inside the gap", pwm_obs, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
@@ -946,7 +946,7 @@ begin
       pwm_check(100 ns, 25 ns, 2, "X in period 2", pwm_obs, WARNING, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
-      log(ID_LOG_HDR, "TC-106: before the first active-going edge, 'Z' is legal only with IDLE_HIGH_Z", C_SCOPE);
+      log(ID_LOG_HDR, "Before the first active-going edge, 'Z' is legal only with IDLE_HIGH_Z", C_SCOPE);
       v_config.idle_level := IDLE_HIGH_Z;
       set_line('Z');
       stimulate(seg('0', 10 ns) & seg('Z', 10 ns) & pwm_wave(100 ns, 25 ns, 1) & seg('1', 25 ns), 'Z');
@@ -959,7 +959,7 @@ begin
       pwm_measure(v_result, "Z before the period, IDLE_INACTIVE", pwm_obs, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
       check_measurement(100 ns, 25 ns, "Z before the period, IDLE_INACTIVE");
       await_stimulus;
-      log(ID_LOG_HDR, "TC-106: 'Z' inside the period is an ERROR also with IDLE_HIGH_Z", C_SCOPE);
+      log(ID_LOG_HDR, "'Z' inside the period is an ERROR also with IDLE_HIGH_Z", C_SCOPE);
       v_config.idle_level := IDLE_HIGH_Z;
       increment_expected_alerts_and_stop_limit(ERROR, 1, "Z inside the pulse, IDLE_HIGH_Z");
       stimulate(seg('1', 10 ns) & seg('Z', 1 ns) & seg('1', 14 ns) & seg('0', 75 ns) & seg('1', 25 ns));
@@ -968,10 +968,10 @@ begin
       await_stimulus;
 
     --============================================================================================================================
-    elsif GC_TESTCASE = "TC_107" then
-      -- REQ-109: runt pulses and gaps
+    elsif GC_TESTCASE = "runt_pulses_and_gaps" then
+      -- Runt pulses and gaps
       --============================================================================================================================
-      log(ID_LOG_HDR, "TC-107: min_pulse_width 2 ns: 1 ns gap and 1 ns pulse raise one ERROR each, 2 ns none", C_SCOPE);
+      log(ID_LOG_HDR, "Min_pulse_width 2 ns: 1 ns gap and 1 ns pulse raise one ERROR each, 2 ns none", C_SCOPE);
       v_config.min_pulse_width := 2 ns;
       increment_expected_alerts_and_stop_limit(ERROR, 1, "1 ns gap");
       stimulate(seg('1', 10 ns) & seg('0', 1 ns) & seg('1', 14 ns) & seg('0', 75 ns) & seg('1', 25 ns));
@@ -992,13 +992,13 @@ begin
       check_measurement(100 ns, 2 ns, "2 ns pulse");
       await_stimulus;
 
-      log(ID_LOG_HDR, "TC-107: runt in a pwm_check() at alert_level WARNING (the timing mismatch is a second WARNING)", C_SCOPE);
+      log(ID_LOG_HDR, "Runt in a pwm_check() at alert_level WARNING (the timing mismatch is a second WARNING)", C_SCOPE);
       increment_expected_alerts(WARNING, 2, "1 ns pulse in a check");
       stimulate(seg('1', 1 ns) & seg('0', 99 ns) & seg('1', 25 ns));
       pwm_check(100 ns, 25 ns, 1, "1 ns pulse", pwm_obs, WARNING, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
-      log(ID_LOG_HDR, "TC-107: min_pulse_width 0 ns: detection off", C_SCOPE);
+      log(ID_LOG_HDR, "Min_pulse_width 0 ns: detection off", C_SCOPE);
       v_config.min_pulse_width := 0 ns;
       stimulate(seg('1', 10 ns) & seg('0', 1 ns) & seg('1', 14 ns) & seg('0', 75 ns) & seg('1', 25 ns));
       pwm_measure(v_result, "1 ns gap, detection off", pwm_obs, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
@@ -1006,16 +1006,16 @@ begin
       await_stimulus;
 
     --============================================================================================================================
-    elsif GC_TESTCASE = "TC_108" then
-      -- REQ-110: missing activity
+    elsif GC_TESTCASE = "missing_activity" then
+      -- Missing activity
       --============================================================================================================================
-      log(ID_LOG_HDR, "TC-108: line stuck after period 1 of 3: one ERROR at the last edge + timeout", C_SCOPE);
+      log(ID_LOG_HDR, "Line stuck after period 1 of 3: one ERROR at the last edge + timeout", C_SCOPE);
       increment_expected_alerts_and_stop_limit(ERROR, 1, "stuck after period 1");
       stimulate(pwm_wave(100 ns, 25 ns, 1) & seg('1', 25 ns));
       pwm_check(100 ns, 25 ns, 3, "stuck after period 1", pwm_obs, ERROR, 200 ns, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(325 ns, "stuck after period 1");
 
-      log(ID_LOG_HDR, "TC-108: line stuck from the request: missing activity, not 0 % / 100 %", C_SCOPE);
+      log(ID_LOG_HDR, "Line stuck from the request: missing activity, not 0 % / 100 %", C_SCOPE);
       set_line('0');
       increment_expected_alerts_and_stop_limit(ERROR, 1, "stuck at 0");
       v_start := now;
@@ -1035,13 +1035,13 @@ begin
       pwm_check(100 ns, 25 ns, 1, "stuck at 1", pwm_obs, ERROR, 300 ns, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(300 ns, "stuck at 1");
 
-      log(ID_LOG_HDR, "TC-108: timeout_severity WARNING", C_SCOPE);
+      log(ID_LOG_HDR, "Timeout_severity WARNING", C_SCOPE);
       v_config.timeout_severity := WARNING;
       increment_expected_alerts(WARNING, 1, "stuck at 1, timeout_severity WARNING");
       pwm_check(100 ns, 25 ns, 1, "stuck at 1", pwm_obs, ERROR, 300 ns, C_SCOPE, shared_msg_id_panel, v_config);
       v_config.timeout_severity := ERROR;
 
-      log(ID_LOG_HDR, "TC-108: pwm_measure() with the line stuck after the active-going edge", C_SCOPE);
+      log(ID_LOG_HDR, "Pwm_measure() with the line stuck after the active-going edge", C_SCOPE);
       set_line('0');
       increment_expected_alerts_and_stop_limit(ERROR, 1, "measure, stuck active");
       stimulate(seg('1', 0 ns), '1');
@@ -1049,17 +1049,17 @@ begin
       check_completion(200 ns, "measure, stuck active");
       check_value(v_result = C_PWM_MEASUREMENT_DEFAULT, ERROR, "measure, stuck active: default result", C_SCOPE);
 
-      log(ID_LOG_HDR, "TC-108: the next call runs normally", C_SCOPE);
+      log(ID_LOG_HDR, "The next call runs normally", C_SCOPE);
       set_line('0');
       stimulate(pwm_wave(100 ns, 25 ns, 1) & seg('1', 25 ns));
       pwm_check(100 ns, 25 ns, 1, "after missing activity", pwm_obs, ERROR, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
     --============================================================================================================================
-    elsif GC_TESTCASE = "TC_109" then
-      -- REQ-111: invalid observation parameters, one TB_ERROR each, no time used
+    elsif GC_TESTCASE = "invalid_observation_parameters" then
+      -- Invalid observation parameters, one TB_ERROR each, no time used
       --============================================================================================================================
-      log(ID_LOG_HDR, "TC-109: invalid observation parameters", C_SCOPE);
+      log(ID_LOG_HDR, "Invalid observation parameters", C_SCOPE);
       v_start := now;
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "measure without timeout");
       pwm_measure(v_result, "no timeout", pwm_obs, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, v_config);
@@ -1122,16 +1122,16 @@ begin
       v_config.duty_rounding_margin := C_PWM_BFM_CONFIG_DEFAULT.duty_rounding_margin;
       check_completion(0 ns, "rejected calls use no time");
 
-      log(ID_LOG_HDR, "TC-109: a valid call afterwards still works", C_SCOPE);
+      log(ID_LOG_HDR, "A valid call afterwards still works", C_SCOPE);
       stimulate(pwm_wave(100 ns, 25 ns, 1) & seg('1', 25 ns));
       pwm_check(100 ns, 25 ns, 1, "valid after invalid", pwm_obs, ERROR, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
     --============================================================================================================================
-    elsif GC_TESTCASE = "TC_110" then
-      -- REQ-112: duty cycle check, independent of the period
+    elsif GC_TESTCASE = "duty_check" then
+      -- Duty cycle check, independent of the period
       --============================================================================================================================
-      log(ID_LOG_HDR, "TC-110: D = 0.25 +-0.01", C_SCOPE);
+      log(ID_LOG_HDR, "D = 0.25 +-0.01", C_SCOPE);
       v_config.duty_tolerance := 0.01;
       stimulate(pwm_wave(100 ns, 25 ns, 3) & seg('1', 25 ns));
       pwm_check(0.25, 3, "25/100 ns", pwm_obs, ERROR, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
@@ -1159,7 +1159,7 @@ begin
       pwm_check(0.25, 3, "period 2 wrong", pwm_obs, WARNING, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
-      log(ID_LOG_HDR, "TC-110: duty_rounding_margin 0.0: real rounding fails a deviation equal to the tolerance", C_SCOPE);
+      log(ID_LOG_HDR, "Duty_rounding_margin 0.0: real rounding fails a deviation equal to the tolerance", C_SCOPE);
       v_config.duty_rounding_margin := 0.0;
       increment_expected_alerts_and_stop_limit(ERROR, 1, "26/100 ns without rounding margin");
       stimulate(pwm_wave(100 ns, 26 ns, 1) & seg('1', 25 ns));
@@ -1167,13 +1167,13 @@ begin
       await_stimulus;
       v_config.duty_rounding_margin := C_PWM_BFM_CONFIG_DEFAULT.duty_rounding_margin;
 
-      log(ID_LOG_HDR, "TC-110: tolerance 0.0: exact duty passes", C_SCOPE);
+      log(ID_LOG_HDR, "Tolerance 0.0: exact duty passes", C_SCOPE);
       v_config.duty_tolerance := 0.0;
       stimulate(pwm_wave(100 ns, 25 ns, 1) & seg('1', 25 ns));
       pwm_check(0.25, 1, "exact", pwm_obs, ERROR, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
-      log(ID_LOG_HDR, "TC-110: active-low", C_SCOPE);
+      log(ID_LOG_HDR, "Active-low", C_SCOPE);
       v_config.polarity := ACTIVE_LOW;
       set_line('1');
       stimulate(pwm_wave(100 ns, 25 ns, 2, '0') & seg('0', 25 ns), '1');
@@ -1181,10 +1181,10 @@ begin
       await_stimulus;
 
     --============================================================================================================================
-    elsif GC_TESTCASE = "TC_111" then
-      -- REQ-113: per-edge timeout, per-call override, 0 ns = never
+    elsif GC_TESTCASE = "edge_timeout_and_terminate" then
+      -- Per-edge timeout, per-call override, 0 ns = never
       --============================================================================================================================
-      log(ID_LOG_HDR, "TC-111: config.timeout 50 ns is too short for the 75 ns gap; the per-call 200 ns overrides it", C_SCOPE);
+      log(ID_LOG_HDR, "Config.timeout 50 ns is too short for the 75 ns gap; the per-call 200 ns overrides it", C_SCOPE);
       v_config.timeout := 50 ns;
       increment_expected_alerts_and_stop_limit(ERROR, 1, "config.timeout 50 ns");
       stimulate(pwm_wave(100 ns, 25 ns, 2) & seg('1', 25 ns));
@@ -1200,7 +1200,7 @@ begin
       await_stimulus;
       v_config.timeout := C_UNDEFINED_TIME;
 
-      log(ID_LOG_HDR, "TC-111: the timeout is per edge: k=100, T=1 us, timeout 2 us", C_SCOPE);
+      log(ID_LOG_HDR, "The timeout is per edge: k=100, T=1 us, timeout 2 us", C_SCOPE);
       stimulate(pwm_wave(1 us, 250 ns, 100) & seg('1', 250 ns));
       pwm_check(1 us, 250 ns, 100, "k=100", pwm_obs, ERROR, 2 us, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(100 us, "k=100");
@@ -1209,7 +1209,7 @@ begin
       pwm_check(0.25, 100, "k=100", pwm_obs, ERROR, 2 us, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
-      log(ID_LOG_HDR, "TC-111: timeout 0 ns waits without limit (10 us of constant level first)", C_SCOPE);
+      log(ID_LOG_HDR, "Timeout 0 ns waits without limit (10 us of constant level first)", C_SCOPE);
       stimulate(seg('0', 10 us) & pwm_wave(100 ns, 25 ns, 1) & seg('1', 25 ns));
       pwm_measure(v_result, "timeout 0 ns", pwm_obs, 0 ns, C_SCOPE, shared_msg_id_panel, v_config);
       check_measurement(100 ns, 25 ns, "timeout 0 ns");
@@ -1222,7 +1222,7 @@ begin
       await_stimulus;
       v_config.timeout := C_UNDEFINED_TIME;
 
-      log(ID_LOG_HDR, "TC-111: negative timeout", C_SCOPE);
+      log(ID_LOG_HDR, "Negative timeout", C_SCOPE);
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "timeout -5 ns");
       pwm_measure(v_result, "timeout -5 ns", pwm_obs, -5 ns, C_SCOPE, shared_msg_id_panel, v_config);
       v_config.timeout := -5 ns;
