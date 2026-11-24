@@ -57,18 +57,36 @@ Result of :ref:`pwm_measure_bfm`. Default value (also the result after a missing
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
 | Record element               | Type                         | Default         | Description                                     |
 +==============================+==============================+=================+=================================================+
-| period                       | time                         | 0 ns            | Active-going edge to active-going edge. 0 ns    |
-|                              |                              |                 | when is_constant.                               |
-+------------------------------+------------------------------+-----------------+-------------------------------------------------+
-| active_time                  | time                         | 0 ns            | Active-going edge to inactive-going edge. 0 ns  |
-|                              |                              |                 | when is_constant.                               |
-+------------------------------+------------------------------+-----------------+-------------------------------------------------+
-| duty_cycle                   | real                         | 0.0             | active_time / period. 0.0 or 1.0 when           |
+| period                       | time                         | 0 ns            | Active-going edge to active-going edge, mean    |
+|                              |                              |                 | over the measured periods. 0 ns when            |
 |                              |                              |                 | is_constant.                                    |
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
-| is_constant                  | boolean                      | false           | No edge within the timeout before the first     |
-|                              |                              |                 | active-going edge: the line held constant_level |
-|                              |                              |                 | (0 % or 100 %).                                 |
+| active_time                  | time                         | 0 ns            | Active-going edge to inactive-going edge, mean  |
+|                              |                              |                 | over the measured periods. 0 ns when            |
+|                              |                              |                 | is_constant.                                    |
++------------------------------+------------------------------+-----------------+-------------------------------------------------+
+| duty_cycle                   | real                         | 0.0             | Sum of the active times / sum of the periods.   |
+|                              |                              |                 | 0.0 or 1.0 when is_constant.                    |
++------------------------------+------------------------------+-----------------+-------------------------------------------------+
+| min_period                   | time                         | 0 ns            | Shortest measured period. 0 ns when             |
+|                              |                              |                 | is_constant.                                    |
++------------------------------+------------------------------+-----------------+-------------------------------------------------+
+| max_period                   | time                         | 0 ns            | Longest measured period. 0 ns when is_constant. |
++------------------------------+------------------------------+-----------------+-------------------------------------------------+
+| min_active_time              | time                         | 0 ns            | Shortest measured active time. 0 ns when        |
+|                              |                              |                 | is_constant.                                    |
++------------------------------+------------------------------+-----------------+-------------------------------------------------+
+| max_active_time              | time                         | 0 ns            | Longest measured active time. 0 ns when         |
+|                              |                              |                 | is_constant.                                    |
++------------------------------+------------------------------+-----------------+-------------------------------------------------+
+| min_duty_cycle               | real                         | 0.0             | Smallest duty cycle of a single period. As      |
+|                              |                              |                 | duty_cycle when is_constant.                    |
++------------------------------+------------------------------+-----------------+-------------------------------------------------+
+| max_duty_cycle               | real                         | 0.0             | Largest duty cycle of a single period. As       |
+|                              |                              |                 | duty_cycle when is_constant.                    |
++------------------------------+------------------------------+-----------------+-------------------------------------------------+
+| is_constant                  | boolean                      | false           | No active-going edge within the timeout: the    |
+|                              |                              |                 | line held constant_level (0 % or 100 %).        |
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
 | constant_level               | std_logic                    | 'U'             | Line level when is_constant ('0', '1', or 'Z'   |
 |                              |                              |                 | with IDLE_HIGH_Z), else 'U'                     |
@@ -122,12 +140,15 @@ Default value for the record is C_PWM_BFM_CONFIG_DEFAULT.
 | min_pulse_width              | time                         | 0 ns            | Pulses or gaps shorter than this raise an alert |
 |                              |                              |                 | (glitch). 0 ns disables the check. Observation. |
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
-| timeout                      | time                         | C_UNDEFINED_TI\ | Maximum wait for each required edge, see        |
+| timeout                      | time                         | C_UNDEFINED_TI\ | Maximum time of an observation, see             |
 |                              |                              | ME              | :ref:`pwm_timeout`. C_UNDEFINED_TIME = not set, |
 |                              |                              |                 | 0 ns = no timeout. Observation.                 |
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
-| timeout_severity             | :ref:`t_alert_level`         | ERROR           | Alert level of a missing-activity timeout.      |
-|                              |                              |                 | Observation.                                    |
+| timeout_severity             | :ref:`t_alert_level`         | ERROR           | Alert level of missing activity: periods not    |
+|                              |                              |                 | complete at the timeout. Observation.           |
++------------------------------+------------------------------+-----------------+-------------------------------------------------+
+| constant_level_severity      | :ref:`t_alert_level`         | NO_ALERT        | Alert level when pwm_measure() reports a        |
+|                              |                              |                 | constant level. Observation.                    |
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
 | id_for_bfm                   | :ref:`t_msg_id               | ID_BFM          | Message ID used for logging general messages in |
 |                              | <message_ids>`               |                 | the BFM                                         |
@@ -304,20 +325,25 @@ pwm_drive_period().
 
 pwm_measure()
 ----------------------------------------------------------------------------------------------------------------------------------
-Measures one complete period and returns the result in a :ref:`t_pwm_measurement <t_pwm_measurement>` record. The
-measurement starts at the first active-going edge after the call; a period in progress is ignored.
+Measures num_periods complete periods and returns their mean values in a :ref:`t_pwm_measurement <t_pwm_measurement>`
+record: the mean period and the mean active time, each rounded to the nearest simulator resolution unit (half a unit is
+rounded up), the duty cycle of the sums, and the exact minimum and maximum of the period, the active time and the duty
+cycle of the single periods. The measurement starts at the first active-going edge after the call; a period in progress
+is ignored.
 
-* If the line does not change before the first active-going edge for the timeout, the result is the constant level
-  (is_constant = true, duty_cycle 0.0 or 1.0). This is a result, not an alert.
-* A timeout after the first active-going edge raises a missing-activity alert with severity config.timeout_severity and
-  returns C_PWM_MEASUREMENT_DEFAULT.
+* If no active-going edge comes before the timeout, the result is the constant level (is_constant = true, duty_cycle
+  0.0 or 1.0), with an alert of severity config.constant_level_severity (default NO_ALERT, i.e. a result, not an
+  alert). Check is_constant before using the values, or set config.constant_level_severity to ERROR if a constant line is
+  a failure in the test.
+* If the periods are not complete at the timeout, a missing-activity alert with severity config.timeout_severity is
+  raised and C_PWM_MEASUREMENT_DEFAULT is returned.
+* Without a timeout (neither the call nor config.timeout sets one, or 0 ns), pwm_measure() waits until the periods are
+  complete, on a constant line for ever. In the VVC, the timeout of await_completion() then ends the wait.
 * Invalid levels and pulses or gaps shorter than config.min_pulse_width raise an ERROR alert.
-* The timeout must be set, per call or in config.timeout, otherwise a TB_ERROR is raised (there is no period to derive it
-  from).
 
 .. code-block::
 
-    pwm_measure(result, msg, pwm, [terminate,] [timeout, [scope, [msg_id_panel, [config]]]])
+    pwm_measure(result, msg, pwm, [terminate,] [num_periods, [timeout, [scope, [msg_id_panel, [config]]]]])
 
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | Object   | Name               | Dir.   | Type                         | Description                                             |
@@ -333,9 +359,12 @@ measurement starts at the first active-going edge after the call; a period in pr
 |          |                    |        |                              | without an alert (logged with ID_TERMINATE_CMD). Used   |
 |          |                    |        |                              | by the VVC for terminate_current_command().             |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | timeout            | in     | time                         | Maximum wait for each required edge. Default value is   |
-|          |                    |        |                              | C_UNDEFINED_TIME, which leads to using config.timeout.  |
-|          |                    |        |                              | 0 ns means no timeout. See :ref:`pwm_timeout`.          |
+| constant | num_periods        | in     | integer                      | Number of periods to measure, >= 1. Default value is 1. |
++----------+--------------------+--------+------------------------------+---------------------------------------------------------+
+| constant | timeout            | in     | time                         | Maximum time of the observation, from the call. Default |
+|          |                    |        |                              | value is C_UNDEFINED_TIME, which leads to using         |
+|          |                    |        |                              | config.timeout. 0 ns means no timeout. See              |
+|          |                    |        |                              | :ref:`pwm_timeout`.                                     |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | scope              | in     | string                       | Describes the scope from which the log/alert            |
 |          |                    |        |                              | originates. Default value is C_BFM_SCOPE ("PWM BFM").   |
@@ -351,10 +380,11 @@ measurement starts at the first active-going edge after the call; a period in pr
 .. code-block::
 
     -- Examples:
-    pwm_measure(v_result, "Measure the PWM output", pwm, 2 us, C_SCOPE, shared_msg_id_panel, C_PWM_BFM_CONFIG_DEFAULT);
+    pwm_measure(v_result, "Measure the PWM output", pwm, 1, 3 us, C_SCOPE, shared_msg_id_panel, C_PWM_BFM_CONFIG_DEFAULT);
+    pwm_measure(v_result, "Mean of 8 periods", pwm, 8, 10 us, C_SCOPE, shared_msg_id_panel, C_PWM_BFM_CONFIG_DEFAULT);
 
-    -- With the default values of the optional parameters:
-    pwm_measure(v_result, "Measure the PWM output", pwm, 2 us);
+    -- With the default values of the optional parameters (one period, no timeout unless config.timeout is set):
+    pwm_measure(v_result, "Measure the PWM output", pwm);
 
 
 .. _pwm_check_bfm:
@@ -365,20 +395,23 @@ Checks num_periods consecutive periods. The expected waveform is given as period
 value, or as duty cycle:
 
 * With period and active_time, each period is checked within config.period_tolerance and config.active_time_tolerance
-  (inclusive). If neither the call nor config.timeout sets the timeout, 2 * period is used.
+  (inclusive).
 * With period, count and resolution, the active time is (count / resolution) * period, rounded as in pwm_generate(),
   and the check is the same as with active_time.
 * With duty, the duty cycle of each period is checked within config.duty_tolerance (inclusive, plus
-  config.duty_rounding_margin), independent of the period. The timeout must be set, per call or in config.timeout.
+  config.duty_rounding_margin), independent of the period.
 
-For both overloads:
+For all overloads:
 
 * If all periods match, a log message is written with ID config.id_for_bfm.
 * Each failing period raises one alert with severity 'alert_level', naming the period index and the measured and expected
   values with the tolerance.
-* active_time = 0 ns or = period, and duty = 0.0 or 1.0, check that the line holds the inactive or active level for the
-  timeout (the observation window, which must then be > 0 ns). A wrong level or a change in the window raises one alert.
-* A missing edge raises a missing-activity alert with severity config.timeout_severity and ends the check.
+* active_time = 0 ns or = period checks that the line holds the inactive or active level for num_periods * period; the
+  timeout is not used. duty = 0.0 or 1.0 checks the same for the timeout, which must then be set and > 0 ns (else a
+  TB_ERROR). A wrong level or a change in the window raises one alert.
+* If the periods are not complete at the timeout, a missing-activity alert with severity config.timeout_severity is
+  raised and the check ends. With a period and no timeout set, the timeout is
+  (num_periods + 2) * (period + config.period_tolerance), see :ref:`pwm_timeout`.
 
 .. code-block::
 
@@ -413,9 +446,10 @@ For both overloads:
 | constant | alert_level        | in     | :ref:`t_alert_level`         | Sets the severity for the alert. Default value is       |
 |          |                    |        |                              | ERROR.                                                  |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | timeout            | in     | time                         | Maximum wait for each required edge. Default value is   |
-|          |                    |        |                              | C_UNDEFINED_TIME, which leads to using config.timeout.  |
-|          |                    |        |                              | 0 ns means no timeout. See :ref:`pwm_timeout`.          |
+| constant | timeout            | in     | time                         | Maximum time of the observation, from the call. Default |
+|          |                    |        |                              | value is C_UNDEFINED_TIME, which leads to using         |
+|          |                    |        |                              | config.timeout. 0 ns means no timeout. See              |
+|          |                    |        |                              | :ref:`pwm_timeout`.                                     |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | scope              | in     | string                       | Describes the scope from which the log/alert            |
 |          |                    |        |                              | originates. Default value is C_BFM_SCOPE ("PWM BFM").   |
@@ -433,7 +467,7 @@ For both overloads:
     -- Examples:
     pwm_check(1 us, 250 ns, 5, "Check 5 periods", pwm, ERROR, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, C_PWM_BFM_CONFIG_DEFAULT);
     pwm_check(1 us, 64, 256, 5, "Check 5 periods with 64/256 duty", pwm, ERROR, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, v_config);
-    pwm_check(0.25, 10, "Check 25 % duty", pwm, ERROR, 2 us, C_SCOPE, shared_msg_id_panel, v_config);
+    pwm_check(0.25, 10, "Check 25 % duty", pwm, ERROR, 15 us, C_SCOPE, shared_msg_id_panel, v_config);
 
     -- With the default values of the optional parameters:
     pwm_check(1 us, 250 ns, 5, "Check 5 periods", pwm);
@@ -563,15 +597,18 @@ run with the same seeds is reproducible. 0 % and 100 % are not affected.
 
 Observation rules and timeout
 ----------------------------------------------------------------------------------------------------------------------------------
-* The timeout applies to each required edge: counted from the call for the first edge, and from the previous edge after
-  that. A check of many periods therefore does not need a long timeout.
-* A per-call timeout overrides config.timeout. If neither is set, pwm_check() uses 2 * period; pwm_measure() and
-  pwm_check() with duty raise a TB_ERROR. 0 ns means no timeout; a negative timeout gives a TB_ERROR.
+* The timeout is the maximum time of the whole observation, counted from the call (from the start of the command in the
+  VVC).
+* A per-call timeout overrides config.timeout. If neither is set, pwm_check() with a period uses
+  (num_periods + 2) * (period + config.period_tolerance): one period to reach the first active-going edge, the periods
+  themselves and one period of margin. pwm_measure() and pwm_check() with duty then run without a timeout.
+* 0 ns means no timeout; a negative timeout gives a TB_ERROR.
+* An edge exactly at the end of the timeout is not counted. Leave some margin, e.g. (num_periods + 2) periods.
 * An edge is a change between '0' and '1'. Any other value raises an alert each time the line changes to it; an invalid
   value that returns to the same level is no edge. Before the first active-going edge, 'Z' is tolerated with
   IDLE_HIGH_Z.
-* Alert levels: pwm_measure() uses ERROR, the checks use 'alert_level', a missing-activity timeout uses
-  config.timeout_severity.
+* Alert levels: invalid levels raise ERROR in pwm_measure() and 'alert_level' in the checks; missing activity at the
+  timeout uses config.timeout_severity; a constant level reported by pwm_measure() uses config.constant_level_severity.
 
 .. important::
 
@@ -963,15 +1000,15 @@ terminate_current_command() during a pwm_generate() command also aborts the gene
 pwm_measure()
 ----------------------------------------------------------------------------------------------------------------------------------
 Adds a measure command to the PWM VVC executor queue, which will run as soon as all preceding commands have completed. When
-the command is scheduled to run, the executor calls the BFM :ref:`pwm_measure_bfm` procedure with the VVC configuration.
-OBSERVER role only.
+the command is scheduled to run, the executor calls the BFM :ref:`pwm_measure_bfm` procedure with the VVC configuration:
+it measures num_periods periods and returns their mean values. OBSERVER role only.
 
 The measurement will not be returned in this procedure call since it is non-blocking for the sequencer/caller, but it will
 be stored in the VVC for a potential future fetch (see example with fetch_result below).
 
 .. code-block::
 
-    pwm_measure(VVCT, vvc_instance_idx, msg, [timeout, [scope]])
+    pwm_measure(VVCT, vvc_instance_idx, msg, [num_periods, [timeout, [scope]]])
 
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | Object   | Name               | Dir.   | Type                         | Description                                             |
@@ -983,9 +1020,12 @@ be stored in the VVC for a potential future fetch (see example with fetch_result
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | msg                | in     | string                       | A custom message to be appended in the log/alert        |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | timeout            | in     | time                         | Maximum wait for each required edge. Default value is   |
-|          |                    |        |                              | C_UNDEFINED_TIME, which leads to using config.timeout.  |
-|          |                    |        |                              | 0 ns means no timeout. See :ref:`pwm_timeout`.          |
+| constant | num_periods        | in     | integer                      | Number of periods to measure, >= 1. Default value is 1. |
++----------+--------------------+--------+------------------------------+---------------------------------------------------------+
+| constant | timeout            | in     | time                         | Maximum time of the observation, from the call. Default |
+|          |                    |        |                              | value is C_UNDEFINED_TIME, which leads to using         |
+|          |                    |        |                              | config.timeout. 0 ns means no timeout. See              |
+|          |                    |        |                              | :ref:`pwm_timeout`.                                     |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | scope              | in     | string                       | Describes the scope from which the log/alert            |
 |          |                    |        |                              | originates. Default value is C_VVC_CMD_SCOPE_DEFAULT    |
@@ -995,13 +1035,14 @@ be stored in the VVC for a potential future fetch (see example with fetch_result
 .. code-block::
 
     -- Examples:
-    pwm_measure(PWM_VVCT, 2, "Measure the PWM output", 2 us, C_SCOPE);
+    pwm_measure(PWM_VVCT, 2, "Measure the PWM output", 1, 3 us, C_SCOPE);
+    pwm_measure(PWM_VVCT, 2, "Mean of 8 periods", 8, 10 us, C_SCOPE);
 
     -- Example with fetch_result() call: Result is placed in v_result
     variable v_cmd_idx : natural;           -- Command index for the last measurement
     variable v_result  : t_pwm_measurement; -- Result of the measurement (t_vvc_result is a subtype of it)
     ...
-    pwm_measure(PWM_VVCT, 2, "Measure the PWM output", 2 us);
+    pwm_measure(PWM_VVCT, 2, "Measure the PWM output", 1, 3 us);
     v_cmd_idx := get_last_received_cmd_idx(PWM_VVCT, 2);
     await_completion(PWM_VVCT, 2, v_cmd_idx, 10 us, "Wait for the measurement to finish");
     fetch_result(PWM_VVCT, 2, v_cmd_idx, v_result, "Fetching the measurement");
@@ -1056,9 +1097,10 @@ cycle (the transaction info operation is then CHECK_DUTY). OBSERVER role only.
 | constant | alert_level        | in     | :ref:`t_alert_level`         | Sets the severity for the alert. Default value is       |
 |          |                    |        |                              | ERROR.                                                  |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | timeout            | in     | time                         | Maximum wait for each required edge. Default value is   |
-|          |                    |        |                              | C_UNDEFINED_TIME, which leads to using config.timeout.  |
-|          |                    |        |                              | 0 ns means no timeout. See :ref:`pwm_timeout`.          |
+| constant | timeout            | in     | time                         | Maximum time of the observation, from the call. Default |
+|          |                    |        |                              | value is C_UNDEFINED_TIME, which leads to using         |
+|          |                    |        |                              | config.timeout. 0 ns means no timeout. See              |
+|          |                    |        |                              | :ref:`pwm_timeout`.                                     |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | scope              | in     | string                       | Describes the scope from which the log/alert            |
 |          |                    |        |                              | originates. Default value is C_VVC_CMD_SCOPE_DEFAULT    |
@@ -1069,9 +1111,9 @@ cycle (the transaction info operation is then CHECK_DUTY). OBSERVER role only.
 
     -- Examples:
     pwm_check(PWM_VVCT, 2, 1 us, 250 ns, "Check one period");
-    pwm_check(PWM_VVCT, 2, 1 us, 250 ns, "Check 5 periods", 5, ERROR, 2 us, C_SCOPE);
-    pwm_check(PWM_VVCT, 2, 1 us, 64, 256, "Check 64/256 duty", 5, ERROR, 2 us, C_SCOPE);
-    pwm_check(PWM_VVCT, 2, 0.25, "Check 25 % duty over 10 periods", 10, ERROR, 2 us, C_SCOPE);
+    pwm_check(PWM_VVCT, 2, 1 us, 250 ns, "Check 5 periods", 5, ERROR, 10 us, C_SCOPE);
+    pwm_check(PWM_VVCT, 2, 1 us, 64, 256, "Check 64/256 duty", 5, ERROR, 10 us, C_SCOPE);
+    pwm_check(PWM_VVCT, 2, 0.25, "Check 25 % duty over 10 periods", 10, ERROR, 15 us, C_SCOPE);
 
 
 .. _pwm_roles:

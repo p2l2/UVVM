@@ -278,9 +278,10 @@ begin
     procedure measure(
       constant vvc_instance_idx : natural;
       constant timeout          : time;
-      constant msg              : string) is
+      constant msg              : string;
+      constant num_periods      : positive := 1) is
     begin
-      pwm_measure(PWM_VVCT, vvc_instance_idx, msg, timeout);
+      pwm_measure(PWM_VVCT, vvc_instance_idx, msg, num_periods, timeout);
       v_cmd_idx := get_last_received_cmd_idx(PWM_VVCT, vvc_instance_idx);
       await_completion(PWM_VVCT, vvc_instance_idx, 4 * timeout + 1 us, msg);
       fetch_result(PWM_VVCT, vvc_instance_idx, v_cmd_idx, v_result, msg);
@@ -296,6 +297,13 @@ begin
       check_value(v_result.period, period, ERROR, "period: " & msg, C_SCOPE, ID_SEQUENCER_SUB);
       check_value(v_result.active_time, active_time, ERROR, "active_time: " & msg, C_SCOPE, ID_SEQUENCER_SUB);
       check_value_in_range(v_result.duty_cycle, C_DUTY - 1.0e-9, C_DUTY + 1.0e-9, ERROR, "duty_cycle: " & msg, C_SCOPE, ID_NEVER);
+      -- One period: minimum and maximum equal the measured values
+      check_value(v_result.min_period, v_result.period, ERROR, "min_period: " & msg, C_SCOPE, ID_NEVER);
+      check_value(v_result.max_period, v_result.period, ERROR, "max_period: " & msg, C_SCOPE, ID_NEVER);
+      check_value(v_result.min_active_time, v_result.active_time, ERROR, "min_active_time: " & msg, C_SCOPE, ID_NEVER);
+      check_value(v_result.max_active_time, v_result.active_time, ERROR, "max_active_time: " & msg, C_SCOPE, ID_NEVER);
+      check_value(v_result.min_duty_cycle, v_result.duty_cycle, ERROR, "min_duty_cycle: " & msg, C_SCOPE, ID_NEVER);
+      check_value(v_result.max_duty_cycle, v_result.duty_cycle, ERROR, "max_duty_cycle: " & msg, C_SCOPE, ID_NEVER);
     end procedure;
 
     procedure check_constant_result(
@@ -308,6 +316,30 @@ begin
       check_value(v_result.duty_cycle, duty, ERROR, "duty_cycle: " & msg, C_SCOPE, ID_NEVER);
       check_value(v_result.period, 0 ns, ERROR, "period: " & msg, C_SCOPE, ID_NEVER);
       check_value(v_result.active_time, 0 ns, ERROR, "active_time: " & msg, C_SCOPE, ID_NEVER);
+      check_value(v_result.min_period, 0 ns, ERROR, "min_period: " & msg, C_SCOPE, ID_NEVER);
+      check_value(v_result.max_period, 0 ns, ERROR, "max_period: " & msg, C_SCOPE, ID_NEVER);
+      check_value(v_result.min_active_time, 0 ns, ERROR, "min_active_time: " & msg, C_SCOPE, ID_NEVER);
+      check_value(v_result.max_active_time, 0 ns, ERROR, "max_active_time: " & msg, C_SCOPE, ID_NEVER);
+      check_value(v_result.min_duty_cycle, duty, ERROR, "min_duty_cycle: " & msg, C_SCOPE, ID_NEVER);
+      check_value(v_result.max_duty_cycle, duty, ERROR, "max_duty_cycle: " & msg, C_SCOPE, ID_NEVER);
+    end procedure;
+
+    -- Minimum and maximum of a multi-period measurement; the duty extremes from the given active time / period pairs
+    procedure check_spread(
+      constant min_period      : time;
+      constant max_period      : time;
+      constant min_active_time : time;
+      constant max_active_time : time;
+      constant min_duty        : real;
+      constant max_duty        : real;
+      constant msg             : string) is
+    begin
+      check_value(v_result.min_period, min_period, ERROR, "min_period: " & msg, C_SCOPE, ID_NEVER);
+      check_value(v_result.max_period, max_period, ERROR, "max_period: " & msg, C_SCOPE, ID_NEVER);
+      check_value(v_result.min_active_time, min_active_time, ERROR, "min_active_time: " & msg, C_SCOPE, ID_NEVER);
+      check_value(v_result.max_active_time, max_active_time, ERROR, "max_active_time: " & msg, C_SCOPE, ID_NEVER);
+      check_value_in_range(v_result.min_duty_cycle, min_duty - 1.0e-9, min_duty + 1.0e-9, ERROR, "min_duty_cycle: " & msg, C_SCOPE, ID_NEVER);
+      check_value_in_range(v_result.max_duty_cycle, max_duty - 1.0e-9, max_duty + 1.0e-9, ERROR, "max_duty_cycle: " & msg, C_SCOPE, ID_NEVER);
     end procedure;
 
     -- Ends a continuous generation on the generator VVC at once
@@ -465,7 +497,7 @@ begin
       start_test;
       increment_expected_alerts_and_stop_limit(ERROR, 1, "measure multicast");
       v_alert_base := get_alert_counter(ERROR);
-      pwm_measure(PWM_VVCT, ALL_INSTANCES, "measure multicast", 200 ns);
+      pwm_measure(PWM_VVCT, ALL_INSTANCES, "measure multicast", 1, 200 ns);
       await_completion(PWM_VVCT, ALL_INSTANCES, 1 us, "measure multicast");
       check_new_alerts(ERROR, 1, "measure multicast, one for the GENERATOR");
 
@@ -849,18 +881,35 @@ begin
       for i in 0 to 1 loop
         log(ID_LOG_HDR, "T " & to_string(10 ns * 100 ** i, ns) & ", t_on 1 unit, T/2, T-1 unit", C_SCOPE);
         start_generator(10 ns * 100 ** i, C_RESOLUTION);
-        measure(C_OBS, 20 ns * 100 ** i, "t_on 1 unit");
+        measure(C_OBS, 30 ns * 100 ** i, "t_on 1 unit");
         check_measurement(10 ns * 100 ** i, C_RESOLUTION, "t_on 1 unit");
         abort_generator;
         start_generator(10 ns * 100 ** i, 5 ns * 100 ** i);
-        measure(C_OBS, 20 ns * 100 ** i, "t_on T/2");
+        measure(C_OBS, 30 ns * 100 ** i, "t_on T/2");
         check_measurement(10 ns * 100 ** i, 5 ns * 100 ** i, "t_on T/2");
         abort_generator;
         start_generator(10 ns * 100 ** i, 10 ns * 100 ** i - C_RESOLUTION);
-        measure(C_OBS, 20 ns * 100 ** i, "t_on T-1 unit");
+        measure(C_OBS, 30 ns * 100 ** i, "t_on T-1 unit");
         check_measurement(10 ns * 100 ** i, 10 ns * 100 ** i - C_RESOLUTION, "t_on T-1 unit");
         abort_generator;
       end loop;
+
+    --============================================================================================================================
+    elsif GC_TESTCASE = "measure_mean_of_periods" then
+      -- Mean values over num_periods periods, on the TB-driven line
+      --============================================================================================================================
+      log(ID_LOG_HDR, "Mean of 4 unequal periods: T 100/200/100/200 ns, t_on 20/60/20/60 ns", C_SCOPE);
+      -- 50 ns idle first, so the measurement has started before the first active-going edge
+      stimulate(seg('0', 50 ns) & pwm_wave(100 ns, 20 ns, 1) & pwm_wave(200 ns, 60 ns, 1) & pwm_wave(100 ns, 20 ns, 1) &
+                pwm_wave(200 ns, 60 ns, 1) & seg('1', 20 ns));
+      measure(C_INJ, 1 us, "4 periods", 4);
+      check_time(50 ns + 600 ns, "mean of 4 periods");
+      check_value(v_result.period, 150 ns, ERROR, "mean period", C_SCOPE);
+      check_value(v_result.active_time, 40 ns, ERROR, "mean active time", C_SCOPE);
+      -- The duty cycle of the sums: 160 ns / 600 ns
+      check_value_in_range(v_result.duty_cycle, 160.0 / 600.0 - 1.0e-9, 160.0 / 600.0 + 1.0e-9, ERROR, "duty cycle of the sums", C_SCOPE);
+      -- Single periods: 20/100 = 0.2 and 60/200 = 0.3
+      check_spread(100 ns, 200 ns, 20 ns, 60 ns, 0.2, 0.3, "4 periods");
 
     --============================================================================================================================
     elsif GC_TESTCASE = "measure_active_low" then
@@ -885,6 +934,13 @@ begin
       measure(C_OBS, 200 ns, "constant 0 %");
       check_time(200 ns, "completes at request + timeout");
       check_constant_result('0', 0.0, "constant 0 %");
+      v_obs_config.constant_level_severity := ERROR;
+      set_obs_config;
+      increment_expected_alerts_and_stop_limit(ERROR, 1, "constant 0 %, constant_level_severity ERROR");
+      measure(C_OBS, 200 ns, "constant 0 %, severity ERROR");
+      check_constant_result('0', 0.0, "constant 0 %, severity ERROR");
+      v_obs_config.constant_level_severity := NO_ALERT;
+      set_obs_config;
       start_generator(100 ns, 100 ns);
       measure(C_OBS, 200 ns, "constant 100 %");
       check_time(200 ns, "completes at request + timeout");
@@ -892,10 +948,10 @@ begin
 
       log(ID_LOG_HDR, "Constant-level checks", C_SCOPE);
       v_start := now;
-      pwm_check(PWM_VVCT, C_OBS, 100 ns, 100 ns, "expect 100 %", 1, ERROR, 300 ns);
+      pwm_check(PWM_VVCT, C_OBS, 100 ns, 100 ns, "expect 100 % for 3 periods", 3);
       pwm_check(PWM_VVCT, C_OBS, 1.0, "expect duty 1.0", 1, ERROR, 300 ns);
       await_completion(PWM_VVCT, C_OBS, 1 us, "constant-level checks");
-      check_time(600 ns, "two windows of 300 ns");
+      check_time(600 ns, "windows 3 x 100 ns and the timeout 300 ns");
       increment_expected_alerts_and_stop_limit(ERROR, 1, "expect 0 % on a 100 % line");
       pwm_check(PWM_VVCT, C_OBS, 100 ns, 0 ns, "expect 0 % on a 100 % line", 1, ERROR, 300 ns);
       await_completion(PWM_VVCT, C_OBS, 1 us, "wrong level");
@@ -1007,7 +1063,14 @@ begin
       pwm_check(PWM_VVCT, C_INJ, 100 ns, 30 ns, "stuck high");
       insert_delay(PWM_VVCT, C_INJ, 10 ns, "next command runs");
       await_completion(PWM_VVCT, C_INJ, 2 us, "stuck high");
-      check_time(50 ns + 200 ns + 10 ns, "timeout 2 x period after the edge, then the next command");
+      check_time((1 + 2) * 100 ns + 10 ns, "derived timeout (1 + 2) x period from the request, then the next command");
+
+      log(ID_LOG_HDR, "Pwm_measure() of 3 periods, the line stops after period 1", C_SCOPE);
+      increment_expected_alerts(WARNING, 1, "measure 3 periods, stuck after period 1");
+      stimulate(seg('0', 50 ns) & pwm_wave(100 ns, 30 ns, 1) & seg('1', 30 ns));
+      measure(C_INJ, 400 ns, "3 periods, stuck after period 1", 3);
+      check_time(400 ns, "measure ends at the timeout");
+      check_value(v_result = C_PWM_MEASUREMENT_DEFAULT, ERROR, "measure, stuck: default result", C_SCOPE);
 
     --============================================================================================================================
     elsif GC_TESTCASE = "invalid_observation_parameters" then
@@ -1015,9 +1078,12 @@ begin
       --============================================================================================================================
       log(ID_LOG_HDR, "Invalid observation parameters", C_SCOPE);
       start_test;
-      increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "measure without timeout");
-      pwm_measure(PWM_VVCT, C_OBS, "measure without timeout");
-      check_rejected(C_OBS, "measure without timeout");
+      increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "measure, num_periods 0");
+      pwm_measure(PWM_VVCT, C_OBS, "measure, num_periods 0", 0, 1 us);
+      check_rejected(C_OBS, "measure, num_periods 0");
+      increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "duty 0.0 without timeout");
+      pwm_check(PWM_VVCT, C_OBS, 0.0, "duty 0.0 without timeout");
+      check_rejected(C_OBS, "duty 0.0 without timeout");
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "timeout -5 ns");
       pwm_check(PWM_VVCT, C_OBS, 100 ns, 30 ns, "timeout -5 ns", 1, ERROR, -5 ns);
       check_rejected(C_OBS, "timeout -5 ns");
@@ -1051,7 +1117,7 @@ begin
       await_completion(PWM_VVCT, C_OBS, 2 us, "T 100 ns");
       pwm_update(PWM_VVCT, C_GEN, 1 us, 250 ns, "T 1 us");
       await_completion(PWM_VVCT, C_GEN, 2 us, "T 1 us");
-      pwm_check(PWM_VVCT, C_OBS, 0.25, "T 1 us, period ignored", 2, ERROR, 2 us);
+      pwm_check(PWM_VVCT, C_OBS, 0.25, "T 1 us, period ignored", 2, ERROR, 4 us);
       await_completion(PWM_VVCT, C_OBS, 5 us, "T 1 us");
       pwm_update(PWM_VVCT, C_GEN, 100 ns, 26 ns, "t_on 26 ns");
       await_completion(PWM_VVCT, C_GEN, 2 us, "t_on 26 ns");
@@ -1065,31 +1131,36 @@ begin
       abort_generator;
 
     --============================================================================================================================
-    elsif GC_TESTCASE = "edge_timeout_and_terminate" then
-      -- Per-call timeout overrides config.timeout, per-edge timeout, timeout 0 ns = never
+    elsif GC_TESTCASE = "timeout_and_terminate" then
+      -- Per-call timeout overrides config.timeout; the timeout covers the whole observation; timeout 0 ns = none
       --============================================================================================================================
-      log(ID_LOG_HDR, "Per-call timeout 200 ns overrides config.timeout 50 ns", C_SCOPE);
+      log(ID_LOG_HDR, "Per-call timeout 400 ns overrides config.timeout 50 ns", C_SCOPE);
       v_obs_config.timeout := 50 ns;
       set_obs_config;
       start_generator(100 ns, 30 ns);
-      pwm_check(PWM_VVCT, C_OBS, 100 ns, 30 ns, "per-call timeout", 2, ERROR, 200 ns);
+      pwm_check(PWM_VVCT, C_OBS, 100 ns, 30 ns, "per-call timeout", 2, ERROR, 400 ns);
       await_completion(PWM_VVCT, C_OBS, 1 us, "per-call timeout");
-      increment_expected_alerts_and_stop_limit(ERROR, 1, "config.timeout 50 ns < gap 70 ns");
+      increment_expected_alerts_and_stop_limit(ERROR, 1, "config.timeout 50 ns < one period");
       pwm_check(PWM_VVCT, C_OBS, 100 ns, 30 ns, "config.timeout 50 ns");
       await_completion(PWM_VVCT, C_OBS, 1 us, "config.timeout");
       v_obs_config.timeout := C_UNDEFINED_TIME;
       set_obs_config;
 
-      log(ID_LOG_HDR, "K=100 at T 1 us with timeout 2 us (per edge)", C_SCOPE);
+      log(ID_LOG_HDR, "K=100 at T 1 us with the derived timeout; k=10 with timeout 5 us ends at the timeout", C_SCOPE);
       pwm_update(PWM_VVCT, C_GEN, 1 us, 300 ns, "T 1 us");
       await_completion(PWM_VVCT, C_GEN, 2 us, "T 1 us");
-      pwm_check(PWM_VVCT, C_OBS, 1 us, 300 ns, "k=100", 100, ERROR, 2 us);
+      pwm_check(PWM_VVCT, C_OBS, 1 us, 300 ns, "k=100, derived timeout", 100);
       await_completion(PWM_VVCT, C_OBS, 110 us, "k=100");
+      increment_expected_alerts_and_stop_limit(ERROR, 1, "k=10 within 5 us");
+      v_start := now;
+      pwm_check(PWM_VVCT, C_OBS, 1 us, 300 ns, "k=10, timeout 5 us", 10, ERROR, 5 us);
+      await_completion(PWM_VVCT, C_OBS, 10 us, "k=10, timeout 5 us");
+      check_time(5 us, "k=10 ends at the timeout");
       abort_generator;
 
       log(ID_LOG_HDR, "Timeout 0 ns on a stuck line: the caller's await_completion() timeout catches it", C_SCOPE);
       increment_expected_alerts_and_stop_limit(TB_ERROR, 2, "await_completion timeouts");
-      pwm_measure(PWM_VVCT, C_OBS, "timeout 0 ns, stuck line", 0 ns);
+      pwm_measure(PWM_VVCT, C_OBS, "timeout 0 ns, stuck line", 1, 0 ns);
       v_cmd_idx := get_last_received_cmd_idx(PWM_VVCT, C_OBS);
       await_completion(PWM_VVCT, C_OBS, 1 us, "never completes");
       wait for 10 us;
@@ -1105,7 +1176,7 @@ begin
 
       log(ID_LOG_HDR, "Terminate_current_command during a constant-level check and a duty check over 10 periods", C_SCOPE);
       v_start := now;
-      pwm_check(PWM_VVCT, C_OBS, 100 ns, 0 ns, "constant level, terminated", 1, ERROR, 1 us);
+      pwm_check(PWM_VVCT, C_OBS, 100 ns, 0 ns, "constant level for 10 periods, terminated", 10);
       wait_until_rel(100 ns);
       terminate_current_command(PWM_VVCT, C_OBS, "terminate the constant-level check");
       await_completion(PWM_VVCT, C_OBS, 10 ns, "terminated constant-level check");
@@ -1128,9 +1199,9 @@ begin
       log(ID_LOG_HDR, "Two observers measure different lines at the same time", C_SCOPE);
       start_generator(100 ns, 30 ns);
       stimulate(seg('0', 20 ns) & pwm_wave(50 ns, 10 ns, 4));
-      pwm_measure(PWM_VVCT, C_OBS, "loopback", 1 us);
+      pwm_measure(PWM_VVCT, C_OBS, "loopback", 1, 1 us);
       v_cmd_idx := get_last_received_cmd_idx(PWM_VVCT, C_OBS);
-      pwm_measure(PWM_VVCT, C_INJ, "inject", 1 us);
+      pwm_measure(PWM_VVCT, C_INJ, "inject", 1, 1 us);
       v_cmd_idx_b := get_last_received_cmd_idx(PWM_VVCT, C_INJ);
       await_completion(PWM_VVCT, C_INJ, 2 us, "inject");
       check_time(70 ns, "inject: first full period ends at 70 ns");
@@ -1175,7 +1246,7 @@ begin
       start_test;
       increment_expected_alerts_and_stop_limit(ERROR, 3, "wrong role");
       v_alert_base := get_alert_counter(ERROR);
-      pwm_measure(PWM_VVCT, C_GEN, "measure on generator", 100 ns);
+      pwm_measure(PWM_VVCT, C_GEN, "measure on generator", 1, 100 ns);
       pwm_check(PWM_VVCT, C_GEN, 100 ns, 30 ns, "check on generator");
       pwm_check(PWM_VVCT, C_GEN, 0.3, "check_duty on generator");
       await_completion(PWM_VVCT, C_GEN, 1 us, "wrong role");

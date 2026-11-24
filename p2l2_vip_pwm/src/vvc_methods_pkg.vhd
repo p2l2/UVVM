@@ -219,11 +219,13 @@ package vvc_methods_pkg is
     constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
   );
 
-  -- Observer role: measures one complete period (BFM pwm_measure()). The result is fetched with fetch_result().
+  -- Observer role: measures num_periods complete periods and returns their mean values (BFM pwm_measure()). The result
+  -- is fetched with fetch_result().
   procedure pwm_measure(
     signal   VVCT                : inout t_vvc_target_record;
     constant vvc_instance_idx    : in    integer;
     constant msg                 : in    string;
+    constant num_periods         : in    integer        := 1;
     constant timeout             : in    time           := C_UNDEFINED_TIME;
     constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
     constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
@@ -612,14 +614,16 @@ package body vvc_methods_pkg is
     signal   VVCT                : inout t_vvc_target_record;
     constant vvc_instance_idx    : in    integer;
     constant msg                 : in    string;
+    constant num_periods         : in    integer        := 1;
     constant timeout             : in    time           := C_UNDEFINED_TIME;
     constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
     constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
   ) is
     constant C_PROC_NAME : string := "pwm_measure";
-    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & timeout_to_string(timeout) & ")";
+    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_string(num_periods) &
+                                     timeout_to_string(timeout) & ")";
   begin
-    send_observer_command(VVCT, vvc_instance_idx, C_PROC_CALL, MEASURE, 0 ns, 0 ns, 0.0, 0, ERROR, timeout, msg, scope,
+    send_observer_command(VVCT, vvc_instance_idx, C_PROC_CALL, MEASURE, 0 ns, 0 ns, 0.0, num_periods, ERROR, timeout, msg, scope,
                           parent_msg_id_panel);
   end procedure;
 

@@ -145,8 +145,16 @@ package body vvc_cmd_pkg is
     if result.is_constant then
       return "constant level '" & to_string(result.constant_level) & "', duty " & to_string(result.duty_cycle, 6);
     else
-      return "T " & to_string(result.period, ns) & ", t_on " & to_string(result.active_time, ns) & ", duty " &
-             to_string(result.duty_cycle, 6);
+      if result.min_period = result.max_period and result.min_active_time = result.max_active_time then
+        return "T " & to_string(result.period, ns) & ", t_on " & to_string(result.active_time, ns) & ", duty " &
+               to_string(result.duty_cycle, 6);
+      else
+        return "mean (min..max): T " & to_string(result.period, ns) & " (" & to_string(result.min_period, ns) & ".." &
+               to_string(result.max_period, ns) & "), t_on " & to_string(result.active_time, ns) & " (" &
+               to_string(result.min_active_time, ns) & ".." & to_string(result.max_active_time, ns) & "), duty " &
+               to_string(result.duty_cycle, 6) & " (" & to_string(result.min_duty_cycle, 6) & ".." &
+               to_string(result.max_duty_cycle, 6) & ")";
+      end if;
     end if;
   end function to_string;
 

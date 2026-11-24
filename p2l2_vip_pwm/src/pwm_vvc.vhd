@@ -415,6 +415,7 @@ begin
                         msg          => format_msg(v_cmd),
                         pwm          => pwm_vvc_if,
                         terminate    => terminate_current_cmd.is_active,
+                        num_periods  => v_cmd.num_periods,
                         timeout      => v_cmd.timeout,
                         scope        => C_SCOPE,
                         msg_id_panel => v_msg_id_panel,
