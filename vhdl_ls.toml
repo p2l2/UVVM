@@ -112,6 +112,11 @@ p2l2_vip_pwm.files = [
 'p2l2_vip_pwm/**/*.vhd',
 ]
 
+p2l2_vip_mdio.files = [
+'uvvm_vvc_framework/src_target_dependent/*.vhd',
+'p2l2_vip_mdio/**/*.vhd',
+]
+
 bitvis_uart.files = [
 'bitvis_uart/**/*.vhd',
 ]
