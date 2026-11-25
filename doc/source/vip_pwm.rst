@@ -584,6 +584,9 @@ sets where the pulse sits within the period:
 * Times given as duty or count/resolution are rounded to the nearest simulator resolution unit, half a unit up.
 * An observer measures T from active-going edge to active-going edge and t_on from the active-going to the inactive-going
   edge. It cannot tell alignments apart from a constant waveform.
+* An observer cannot detect a wrong polarity either: with the opposite config.polarity, it measures the same T, but
+  T - t_on as active time and 1 - d as duty cycle, so a 50 % signal passes every check. Set config.polarity of the
+  observer to the polarity of the signal.
 
 
 .. _pwm_jitter:
