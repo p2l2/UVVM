@@ -304,7 +304,7 @@ begin
       set_global_vvc_transaction_info(vvc_transaction_info_trigger, vvc_transaction_info, v_cmd, vvc_config, status, C_SCOPE);
     end procedure;
 
-    procedure log_completed(
+    procedure log_command(
       constant result : string
     ) is
     begin
@@ -389,7 +389,7 @@ begin
              parameters_are_valid(true, true) then
             set_transaction_info(IN_PROGRESS);
             check_idle_level;
-            log_completed("started (" & config_to_string & ")");
+            log_command("started (" & config_to_string & ")");
             start_run(v_cmd.num_periods);
             wait until run_mode = IDLE or terminate_current_cmd.is_active = '1';
             if run_mode /= IDLE then
@@ -397,7 +397,7 @@ begin
               abort_run;
               log_terminated;
             else
-              log_completed("completed");
+              log_command("completed");
             end if;
             set_transaction_info(COMPLETED);
           end if;
@@ -408,7 +408,7 @@ begin
             set_transaction_info(IN_PROGRESS);
             check_idle_level;
             start_run(0);
-            log_completed("started (" & config_to_string & ")");
+            log_command("started (" & config_to_string & ")");
             set_transaction_info(COMPLETED);
           end if;
 
@@ -426,7 +426,7 @@ begin
               wait for 0 ns;
             end if;
             if update_ack = v_request_idx then
-              log_completed("took effect");
+              log_command("took effect");
             else
               log_terminated;
             end if;
@@ -444,7 +444,7 @@ begin
               wait for 0 ns;
             end if;
             if run_mode = IDLE then
-              log_completed("completed");
+              log_command("completed");
             else
               log_terminated;
             end if;
@@ -455,7 +455,7 @@ begin
           if role_is(GENERATOR) and run_mode_is(CONTINUOUS, "No continuous generation is active.") then
             set_transaction_info(IN_PROGRESS);
             abort_run;
-            log_completed("completed");
+            log_command("completed");
             set_transaction_info(COMPLETED);
           end if;
 

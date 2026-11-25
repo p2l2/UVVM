@@ -591,7 +591,7 @@ begin
       pwm_generate(10 ns, 3 ns, 1, "center T 10 ns, t_on 3 ns", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       settle;
       if C_RESOLUTION <= 100 ps then
-        check_edges_rel((3.5 ns, 6.5 ns), "10", "center-aligned T 10 ns, t_on 3 ns (spec section 7)");
+        check_edges_rel((3.5 ns, 6.5 ns), "10", "center-aligned T 10 ns, t_on 3 ns");
       end if;
       test_period_set("center-aligned");
 
