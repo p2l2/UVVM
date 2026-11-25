@@ -77,14 +77,19 @@ architecture behave of pwm_vvc is
   constant C_RUN_REQUEST_DEFAULT : t_run_request := (0, 0 ns, 0 ns, 0);
 
   -- Executor -> p_waveform
-  signal start_req  : t_run_request := C_RUN_REQUEST_DEFAULT; -- GENERATE_PERIODS, START
-  signal update_req : t_run_request := C_RUN_REQUEST_DEFAULT; -- UPDATE, latched at the next period boundary
-  signal stop_req   : natural       := 0;                     -- incremented by STOP, checked at the period boundaries
-  signal abort_req  : boolean       := false;                 -- toggled by ABORT and terminate_current_command
+  signal start_req     : t_run_request := C_RUN_REQUEST_DEFAULT; -- GENERATE_PERIODS, START
+  signal update_req    : t_run_request := C_RUN_REQUEST_DEFAULT; -- UPDATE, latched at the next period boundary
+  signal update_cancel : natural       := 0;     -- idx of an update request withdrawn by terminate_current_command
+  signal stop_req      : natural       := 0;     -- incremented by STOP, checked at the period boundaries
+  signal stop_cancel   : natural       := 0;     -- value of stop_req whose stop was withdrawn by terminate_current_command
+  signal abort_req     : boolean       := false; -- toggled by ABORT and terminate_current_command
+  signal idle_req      : natural       := 0;     -- incremented by DRIVE_IDLE
   -- p_waveform -> executor
-  signal run_mode   : t_run_mode    := IDLE;
-  signal start_ack  : natural       := 0; -- idx of the last start request whose first period has begun
-  signal update_ack : natural       := 0; -- idx of the last update request latched at a period boundary
+  signal run_mode      : t_run_mode    := IDLE;
+  signal start_ack     : natural       := 0;     -- idx of the last start request whose first period has begun
+  signal update_ack    : natural       := 0;     -- idx of the last update request latched at a period boundary
+  signal idle_ack      : natural       := 0;     -- value of the last idle_req served
+  signal idle_driven   : std_ulogic    := 'U';   -- the idle value last driven, to detect a config change since
 
   -- Instantiation of the element dedicated executor
   shared variable command_queue : work.td_cmd_queue_pkg.t_generic_queue;
@@ -299,6 +304,31 @@ begin
       set_global_vvc_transaction_info(vvc_transaction_info_trigger, vvc_transaction_info, v_cmd, vvc_config, status, C_SCOPE);
     end procedure;
 
+    procedure log_completed(
+      constant result : string
+    ) is
+    begin
+      log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & " " & result & "." & format_msg(v_cmd), C_SCOPE, v_msg_id_panel);
+    end procedure;
+
+    -- As the BFM logs a terminated observation
+    procedure log_terminated is
+    begin
+      log(ID_TERMINATE_CMD, to_string(v_cmd.proc_call) & "=> terminated." & format_msg(v_cmd), C_SCOPE, v_msg_id_panel);
+    end procedure;
+
+    -- Warns if polarity or idle_level changed since the idle level was last driven: the line is not at the idle level
+    -- of the current config, so the first edge of the run may be missing
+    procedure check_idle_level is
+      constant C_IDLE : std_ulogic := pwm_idle_value(vvc_config.bfm_config);
+    begin
+      if idle_driven /= C_IDLE then
+        alert(WARNING, to_string(v_cmd.proc_call) & "=> The line is at the idle level '" & to_string(idle_driven) &
+              "' of an earlier config, the current config has '" & to_string(C_IDLE) &
+              "'. Call pwm_drive_idle() after changing polarity or idle_level." & format_msg(v_cmd), C_SCOPE);
+      end if;
+    end procedure;
+
   begin
 
     -- 0. Initialize the process prior to first command
@@ -326,7 +356,7 @@ begin
 
       -- Check if command is a BFM access
       v_prev_command_was_bfm_access := v_command_is_bfm_access; -- save for inter_bfm_delay
-      -- UPDATE, STOP and ABORT act on a running generation and are not delayed
+      -- UPDATE, STOP and ABORT act on a running generation and DRIVE_IDLE only on the idle level; they are not delayed
       if v_cmd.operation = GENERATE_PERIODS or v_cmd.operation = START or v_cmd.operation = MEASURE or
          v_cmd.operation = CHECK or v_cmd.operation = CHECK_DUTY then
         v_command_is_bfm_access := true;
@@ -358,14 +388,17 @@ begin
           if role_is(GENERATOR) and run_mode_is(IDLE, "Not allowed while a continuous generation is active.") and
              parameters_are_valid(true, true) then
             set_transaction_info(IN_PROGRESS);
-            log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & " started (" & config_to_string & ")." & format_msg(v_cmd),
-                C_SCOPE, v_msg_id_panel);
+            check_idle_level;
+            log_completed("started (" & config_to_string & ")");
             start_run(v_cmd.num_periods);
             wait until run_mode = IDLE or terminate_current_cmd.is_active = '1';
             if run_mode /= IDLE then
-              abort_run;                -- terminate_current_command
+              -- terminate_current_command: idle level at once
+              abort_run;
+              log_terminated;
+            else
+              log_completed("completed");
             end if;
-            log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & " completed." & format_msg(v_cmd), C_SCOPE, v_msg_id_panel);
             set_transaction_info(COMPLETED);
           end if;
 
@@ -373,29 +406,48 @@ begin
           if role_is(GENERATOR) and run_mode_is(IDLE, "A continuous generation is already active.") and
              parameters_are_valid(false, true) then
             set_transaction_info(IN_PROGRESS);
+            check_idle_level;
             start_run(0);
-            log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & " started (" & config_to_string & ")." & format_msg(v_cmd),
-                C_SCOPE, v_msg_id_panel);
+            log_completed("started (" & config_to_string & ")");
             set_transaction_info(COMPLETED);
           end if;
 
+        -- terminate_current_command withdraws a pending UPDATE or STOP. Unless the period boundary has taken the request
+        -- in the same delta cycle: then the command completed, which shows after one delta cycle.
         when UPDATE =>
           if role_is(GENERATOR) and run_mode_is(CONTINUOUS, "No continuous generation is active.") and
              parameters_are_valid(false, false) then
             set_transaction_info(IN_PROGRESS);
             v_request_idx := update_req.idx + 1;
             update_req    <= (v_request_idx, v_cmd.period, v_cmd.active_time, 0);
-            wait until update_ack = v_request_idx or run_mode = IDLE or terminate_current_cmd.is_active = '1';
-            log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & " took effect." & format_msg(v_cmd), C_SCOPE, v_msg_id_panel);
+            wait until update_ack = v_request_idx or terminate_current_cmd.is_active = '1';
+            if update_ack /= v_request_idx then
+              update_cancel <= v_request_idx;
+              wait for 0 ns;
+            end if;
+            if update_ack = v_request_idx then
+              log_completed("took effect");
+            else
+              log_terminated;
+            end if;
             set_transaction_info(COMPLETED);
           end if;
 
         when STOP =>
           if role_is(GENERATOR) and run_mode_is(CONTINUOUS, "No continuous generation is active.") then
             set_transaction_info(IN_PROGRESS);
-            stop_req <= stop_req + 1;
+            v_request_idx := stop_req + 1;
+            stop_req      <= v_request_idx;
             wait until run_mode = IDLE or terminate_current_cmd.is_active = '1';
-            log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & " completed." & format_msg(v_cmd), C_SCOPE, v_msg_id_panel);
+            if run_mode /= IDLE then
+              stop_cancel <= v_request_idx;
+              wait for 0 ns;
+            end if;
+            if run_mode = IDLE then
+              log_completed("completed");
+            else
+              log_terminated;
+            end if;
             set_transaction_info(COMPLETED);
           end if;
 
@@ -403,7 +455,18 @@ begin
           if role_is(GENERATOR) and run_mode_is(CONTINUOUS, "No continuous generation is active.") then
             set_transaction_info(IN_PROGRESS);
             abort_run;
-            log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & " completed." & format_msg(v_cmd), C_SCOPE, v_msg_id_panel);
+            log_completed("completed");
+            set_transaction_info(COMPLETED);
+          end if;
+
+        when DRIVE_IDLE =>
+          if role_is(GENERATOR) and run_mode_is(IDLE, "Not allowed while a continuous generation is active.") then
+            set_transaction_info(IN_PROGRESS);
+            v_request_idx := idle_req + 1;
+            idle_req      <= v_request_idx;
+            wait until idle_ack = v_request_idx;
+            log(vvc_config.bfm_config.id_for_bfm, to_string(v_cmd.proc_call) & "=> line at '" & to_string(idle_driven) & "' (" &
+                to_upper(to_string(vvc_config.bfm_config.idle_level)) & ")." & format_msg(v_cmd), C_SCOPE, v_msg_id_panel);
             set_transaction_info(COMPLETED);
           end if;
 
@@ -503,9 +566,10 @@ begin
 
   --==========================================================================================
   -- Waveform generator (GENERATOR role)
-  -- - Drives the idle level from time 0 and runs the generation requested by the executor, period by period, so that
-  --   the executor stays free for UPDATE, STOP and ABORT during a continuous generation.
-  -- - Latches update_req and vvc_config.bfm_config at every period boundary.
+  -- - Drives the idle level from time 0, at the end of each run and on DRIVE_IDLE, and runs the generation requested
+  --   by the executor, period by period, so that the executor stays free for UPDATE, STOP and ABORT during a
+  --   continuous generation.
+  -- - Latches update_req (unless withdrawn) and vvc_config.bfm_config at every period boundary.
   -- - Every run starts from the configured jitter seeds, seed 1 shifted by GC_INSTANCE_IDX, so that a run is
   --   reproducible and instances with the same configuration jitter independently.
   -- - The BFM log of each period and of the idle level is disabled (config.id_for_bfm); the executor logs the commands.
@@ -549,6 +613,15 @@ begin
       return v_msg_id_panel;
     end function;
 
+    -- Drives the idle level of 'config' and records it for the executor's check_idle_level
+    procedure drive_idle(
+      constant config : in t_pwm_bfm_config
+    ) is
+    begin
+      pwm_drive_idle("", pwm_vvc_if, C_SCOPE, waveform_msg_id_panel(config.id_for_bfm), config);
+      idle_driven <= pwm_idle_value(config);
+    end procedure;
+
   begin
     if GC_ROLE = OBSERVER then
       pwm_vvc_if <= 'Z';
@@ -556,10 +629,17 @@ begin
     end if;
 
     -- From the generic: vvc_config may not be set up yet at time 0
-    pwm_drive_idle("", pwm_vvc_if, C_SCOPE, waveform_msg_id_panel(GC_PWM_BFM_CONFIG.id_for_bfm), GC_PWM_BFM_CONFIG);
+    drive_idle(GC_PWM_BFM_CONFIG);
 
     loop
-      wait on start_req;
+      wait on start_req, idle_req;
+      if idle_req'event then
+        -- DRIVE_IDLE, only while no run is active
+        drive_idle(vvc_config.bfm_config);
+        idle_ack <= idle_req;
+        next;
+      end if;
+
       v_period         := start_req.period;
       v_active_time    := start_req.active_time;
       v_continuous     := start_req.num_periods = 0;
@@ -586,14 +666,16 @@ begin
           v_remaining := v_remaining - 1;
           exit when v_remaining = 0;
         end if;
-        exit when stop_req /= v_stop_idx;
+        exit when stop_req /= v_stop_idx and stop_req /= stop_cancel;
 
-        -- Period boundary: latch a pending update and the config
+        -- Period boundary: latch a pending update (unless withdrawn) and the config
         if update_req.idx /= v_update_idx then
-          v_update_idx  := update_req.idx;
-          v_period      := update_req.period;
-          v_active_time := update_req.active_time;
-          update_ack    <= v_update_idx;
+          v_update_idx := update_req.idx;
+          if update_req.idx /= update_cancel then
+            v_period      := update_req.period;
+            v_active_time := update_req.active_time;
+            update_ack    <= v_update_idx;
+          end if;
         end if;
         if vvc_config.bfm_config.jitter >= 0 ns then
           v_config := vvc_config.bfm_config;
@@ -604,7 +686,7 @@ begin
         end if;
       end loop;
 
-      pwm_drive_idle("", pwm_vvc_if, C_SCOPE, waveform_msg_id_panel(vvc_config.bfm_config.id_for_bfm), vvc_config.bfm_config);
+      drive_idle(vvc_config.bfm_config);
       run_mode <= IDLE;
     end loop;
   end process p_waveform;

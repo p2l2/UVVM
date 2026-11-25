@@ -696,6 +696,19 @@ begin
         v_config.alignment := alignment;
         test_jitter(100 ns, 30 ns, 500, "j 5 ns, " & to_string(alignment));
       end loop;
+
+      -- Center-aligned periods start without an edge (the line is already inactive). That period start is not jittered,
+      -- so it does not delay the active-going edge: with a first gap of 2 ns and j = 5 ns, the active-going edge is
+      -- clamped to the period start in some periods (it was always at least one resolution unit later before).
+      log(ID_LOG_HDR, "Center-aligned, first gap 2 ns < j: the active-going edge can reach the period start", C_SCOPE);
+      test_jitter(100 ns, 96 ns, 200, "j 5 ns, center-aligned, first gap 2 ns");
+      save_edges(v_edges_a);
+      v_differs := false;
+      for i in 0 to 199 loop
+        -- Edge 2i is the active-going edge of period i
+        v_differs := v_differs or v_edges_a(2 * i).time_stamp = i * 100 ns;
+      end loop;
+      check_value(v_differs, ERROR, "an active-going edge at a period start", C_SCOPE);
       v_config.polarity := ACTIVE_LOW;
       pwm_drive_idle("", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       test_jitter(100 ns, 30 ns, 500, "j 5 ns, center-aligned, active-low");
@@ -1008,6 +1021,7 @@ begin
       --============================================================================================================================
       log(ID_LOG_HDR, "1 ns of X, U, Z, W, - inside the pulse: one ERROR each, timing unaffected", C_SCOPE);
       for value in std_ulogic loop
+        -- 'L' and 'H' are valid levels: see weak_levels_during_observation
         if value /= '0' and value /= '1' and value /= 'L' and value /= 'H' then
           increment_expected_alerts_and_stop_limit(ERROR, 1, "'" & to_string(value) & "' inside the pulse");
           stimulate(seg('1', 10 ns) & seg(value, 1 ns) & seg('1', 14 ns) & seg('0', 75 ns) & seg('1', 25 ns));
@@ -1047,6 +1061,49 @@ begin
       stimulate(seg('1', 10 ns) & seg('Z', 1 ns) & seg('1', 14 ns) & seg('0', 75 ns) & seg('1', 25 ns));
       pwm_measure(v_result, "Z inside the pulse, IDLE_HIGH_Z", pwm_obs, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
       check_measurement(100 ns, 25 ns, "Z inside the pulse, IDLE_HIGH_Z");
+      await_stimulus;
+
+    --============================================================================================================================
+    elsif GC_TESTCASE = "weak_levels_during_observation" then
+      -- The weak levels 'L' and 'H' are read as '0' and '1', e.g. on a line with a pull resistor
+      --============================================================================================================================
+      log(ID_LOG_HDR, "A period of 'L' and 'H' only", C_SCOPE);
+      set_line('0');
+      stimulate(seg('L', 10 ns) & seg('H', 25 ns) & seg('L', 75 ns) & seg('H', 25 ns), 'L');
+      pwm_measure(v_result, "L/H period", pwm_obs, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
+      check_measurement(100 ns, 25 ns, "L/H period");
+      await_stimulus;
+
+      log(ID_LOG_HDR, "Changes between '1' and 'H' or '0' and 'L' are no edges and raise no alert", C_SCOPE);
+      set_line('0');
+      stimulate(seg('0', 10 ns) & seg('1', 10 ns) & seg('H', 15 ns) & seg('L', 40 ns) & seg('0', 35 ns) &
+                seg('H', 25 ns) & seg('L', 75 ns) & seg('1', 25 ns));
+      pwm_check(100 ns, 25 ns, "strong and weak levels mixed", pwm_obs, 2, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      await_stimulus;
+
+      log(ID_LOG_HDR, "A constant 'H' or 'L' is the constant level '1' or '0'", C_SCOPE);
+      set_line('H');
+      pwm_measure(v_result, "constant H", pwm_obs, 1, 200 ns, C_SCOPE, shared_msg_id_panel, v_config);
+      check_constant_result('1', 1.0, "constant H");
+      set_line('L');
+      pwm_measure(v_result, "constant L", pwm_obs, 1, 200 ns, C_SCOPE, shared_msg_id_panel, v_config);
+      check_constant_result('0', 0.0, "constant L");
+
+      log(ID_LOG_HDR, "Constant-level checks: '0'/'L' and '1'/'H' are the same level", C_SCOPE);
+      set_line('0');
+      stimulate(seg('0', 50 ns) & seg('L', 50 ns) & seg('0', 50 ns) & seg('L', 50 ns), 'L');
+      pwm_check(100 ns, 0 ns, "0 % on 0/L", pwm_obs, 2, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      await_stimulus;
+      set_line('1');
+      stimulate(seg('1', 50 ns) & seg('H', 50 ns) & seg('1', 50 ns), 'H');
+      pwm_check(1.0, "100 % on 1/H", pwm_obs, 1, 200 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      await_stimulus;
+
+      log(ID_LOG_HDR, "'W' is no weak level of '0' or '1': an ERROR", C_SCOPE);
+      set_line('0');
+      increment_expected_alerts_and_stop_limit(ERROR, 1, "W during a 0 % check");
+      stimulate(seg('0', 50 ns) & seg('W', 50 ns), '0');
+      pwm_check(100 ns, 0 ns, "W during a 0 % check", pwm_obs, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
     --============================================================================================================================

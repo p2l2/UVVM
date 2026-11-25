@@ -91,7 +91,7 @@ package pwm_bfm_pkg is
     min_duty_cycle  : real;       -- Smallest duty cycle of a single period; as duty_cycle when is_constant
     max_duty_cycle  : real;       -- Largest duty cycle of a single period; as duty_cycle when is_constant
     is_constant     : boolean;    -- No active-going edge within the timeout: the line held constant_level
-    constant_level  : std_ulogic; -- Line level when is_constant, else 'U'
+    constant_level  : std_ulogic; -- Line level when is_constant ('L'/'H' as '0'/'1'), else 'U'
   end record t_pwm_measurement;
 
   -- Also the result after a missing-activity alert
@@ -126,6 +126,14 @@ package pwm_bfm_pkg is
     constant resolution : in positive;
     constant period     : in time
   ) return time;
+
+  --==========================================================================================
+  -- Line level functions
+  --==========================================================================================
+  -- Returns the value driven on the line when idle, given by config.idle_level and config.polarity ('Z' for IDLE_HIGH_Z)
+  function pwm_idle_value(
+    constant config : in t_pwm_bfm_config
+  ) return std_ulogic;
 
   --==========================================================================================
   -- BFM procedures
@@ -231,8 +239,9 @@ package pwm_bfm_pkg is
   --   a period uses (num_periods + 2) * (period + config.period_tolerance); pwm_measure() and pwm_check() with duty run
   --   without a timeout.
   -- * Periods not complete at the timeout raise a missing-activity alert at config.timeout_severity.
+  -- * The weak levels 'L' and 'H' are read as '0' and '1', e.g. on a line with a pull resistor.
   -- * While waiting for the first active-going edge, the line may be 'Z' if config.idle_level = IDLE_HIGH_Z. Any other
-  --   value than '0'/'1' raises an alert each time the line changes to it; edges are changes between '0' and '1'.
+  --   value than '0'/'1'/'L'/'H' raises an alert each time the line changes to it; edges are changes between '0' and '1'.
   -- * With config.min_pulse_width > 0 ns, every measured pulse or gap shorter than it raises an alert.
 
   ---------------------------------------------------------------------------------
@@ -431,8 +440,7 @@ package body pwm_bfm_pkg is
     end if;
   end function;
 
-  -- The value driven on the line when idle
-  function idle_value(
+  function pwm_idle_value(
     constant config : in t_pwm_bfm_config
   ) return std_ulogic is
   begin
@@ -498,14 +506,15 @@ package body pwm_bfm_pkg is
   -- Internal: timing core of pwm_drive_period() and pwm_generate()
   ---------------------------------------------------------------------------------
   -- The assignments of one period, as time relative to the period start and level. The first one is at the
-  -- period boundary (an edge only if the previous period ended at the other level). 0 % and 100 % give one assignment
-  -- of a constant level, so no edges and no jitter. With config.jitter > 0 ns the times are already jittered.
+  -- period boundary (an edge only if 'line_level', the level before the period, differs). 0 % and 100 % give one
+  -- assignment of a constant level, so no edges and no jitter. With config.jitter > 0 ns the times are already jittered.
   type t_period_times is array (0 to 2) of time;
 
   procedure plan_period(
     constant period      : in time;
     constant active_time : in time;
     constant config      : in t_pwm_bfm_config;
+    constant line_level  : in std_ulogic;
     variable seed1       : inout positive;
     variable seed2       : inout positive;
     variable times       : out t_period_times;
@@ -522,7 +531,7 @@ package body pwm_bfm_pkg is
     variable v_first_gap  : time;
     variable v_offset     : time;
     variable v_time       : time;
-    variable v_prev       : time       := 0 ns;
+    variable v_earliest   : time       := 0 ns; -- earliest time of the next edge
   begin
     if active_time = 0 ns then
       times(0)  := 0 ns;
@@ -555,20 +564,17 @@ package body pwm_bfm_pkg is
 
     for i in 0 to v_last loop
       v_time := v_ideal(i);
-      if config.jitter > 0 ns then
+      -- No edge at the period start if the line is already at its level (e.g. center-aligned after center-aligned):
+      -- not jittered, and it does not delay the next edge
+      if config.jitter > 0 ns and not (i = 0 and to_x01(line_level) = v_level(0)) then
         -- Offset relative to the ideal time, so the jitter does not accumulate. Clamped so that the edges keep their
         -- order, every pulse and gap is at least one resolution unit and every edge stays within its period.
         random(-config.jitter, config.jitter, C_RESOLUTION, seed1, seed2, v_offset, "pwm_drive_period");
-        v_time := v_time + v_offset;
-        if i = 0 then
-          v_time := maximum(v_time, 0 ns);
-        else
-          v_time := maximum(v_time, v_prev + C_RESOLUTION);
-        end if;
-        v_time := minimum(v_time, period - (v_last + 1 - i) * C_RESOLUTION);
+        v_time     := maximum(v_time + v_offset, v_earliest);
+        v_time     := minimum(v_time, period - (v_last + 1 - i) * C_RESOLUTION);
+        v_earliest := v_time + C_RESOLUTION;
       end if;
       times(i) := v_time;
-      v_prev   := v_time;
     end loop;
     levels := v_level;
     last   := v_last;
@@ -588,7 +594,7 @@ package body pwm_bfm_pkg is
     variable v_last   : natural;
     variable v_now    : time := 0 ns;
   begin
-    plan_period(period, active_time, config, seed1, seed2, v_times, v_levels, v_last);
+    plan_period(period, active_time, config, pwm, seed1, seed2, v_times, v_levels, v_last);
     for i in 0 to v_last loop
       if v_times(i) > v_now then
         wait for v_times(i) - v_now;
@@ -615,7 +621,7 @@ package body pwm_bfm_pkg is
     variable v_now    : time := 0 ns;
   begin
     aborted := false;
-    plan_period(period, active_time, config, seed1, seed2, v_times, v_levels, v_last);
+    plan_period(period, active_time, config, pwm, seed1, seed2, v_times, v_levels, v_last);
     for i in 0 to v_last loop
       if v_times(i) > v_now then
         wait on abort for v_times(i) - v_now;
@@ -657,7 +663,7 @@ package body pwm_bfm_pkg is
     for i in 1 to num_periods loop
       drive_period_core(period, active_time, pwm, config, v_seed1, v_seed2);
     end loop;
-    pwm <= idle_value(config);
+    pwm <= pwm_idle_value(config);
     log(config.id_for_bfm, proc_call & " completed (active_time " & to_string(active_time, ns) & ", " & to_upper(to_string(config.polarity)) & ", " &
         to_upper(to_string(config.alignment)) & ")." & add_msg_delimiter(msg), scope, msg_id_panel);
   end procedure;
@@ -707,11 +713,19 @@ package body pwm_bfm_pkg is
     return time_to_units(active_time) / time_to_units(period);
   end function;
 
+  -- The logic level of a line value: 'L'/'H' as '0'/'1', every other value than '0'/'1' as 'X'
+  function line_level(
+    constant value : in std_ulogic
+  ) return std_ulogic is
+  begin
+    return to_x01(value);
+  end function;
+
   function is_valid_level(
     constant value : in std_ulogic
   ) return boolean is
   begin
-    return value = '0' or value = '1';
+    return line_level(value) /= 'X';
   end function;
 
   -- Parameter check of the observation procedures, after the procedure-specific checks. Raises at most one alert.
@@ -757,7 +771,8 @@ package body pwm_bfm_pkg is
   -- The overloads without a terminate signal pass 'pwm' as terminate with use_terminate = false: a signal parameter
   -- needs a signal as actual, and waiting on pwm twice changes nothing.
 
-  -- Waits for the next edge: a change of the valid level ('0'/'1') of pwm, until 'deadline' (C_NO_DEADLINE = no limit).
+  -- Waits for the next edge: a change of the valid level ('0'/'1', 'L'/'H' read as '0'/'1') of pwm, until 'deadline'
+  -- (C_NO_DEADLINE = no limit).
   -- 'level' is the last valid level ('U' = none yet) and is updated. A change to any other value raises an alert at
   -- alert_level, except 'Z' when allow_z is true. timed_out is true if no edge came before the deadline.
   procedure await_edge(
@@ -792,8 +807,8 @@ package body pwm_bfm_pkg is
       end if;
       if pwm'event then
         if is_valid_level(pwm) then
-          if pwm /= level then
-            level := pwm;
+          if line_level(pwm) /= level then
+            level := line_level(pwm);
             return;
           end if;
         elsif not (allow_z and pwm = 'Z') then
@@ -823,7 +838,7 @@ package body pwm_bfm_pkg is
     variable v_terminated : boolean;
   begin
     if is_valid_level(pwm) then
-      v_level := pwm;
+      v_level := line_level(pwm);
     end if;
     loop
       await_edge(pwm, deadline, config.idle_level = IDLE_HIGH_Z, alert_level, proc_call, msg, scope, terminate, use_terminate, v_level,
@@ -940,7 +955,7 @@ package body pwm_bfm_pkg is
     constant C_START : time := now;
   begin
     terminated := false;
-    if pwm /= expected then
+    if line_level(pwm) /= expected then
       alert(alert_level, proc_call & "=> Failed. Expected the constant level '" & to_string(expected) & "', the line was '" &
             to_string(pwm) & "'." & add_msg_delimiter(msg), scope);
       return;
@@ -951,7 +966,8 @@ package body pwm_bfm_pkg is
         return;
       end if;
       wait on pwm, terminate for window - (now - C_START);
-      if pwm'event then
+      -- A change between a strong and a weak value of the same level (e.g. '1' to 'H') keeps the level
+      if pwm'event and line_level(pwm) /= expected then
         alert(alert_level, proc_call & "=> Failed. Expected the constant level '" & to_string(expected) & "' for " & to_string(window, ns) &
               ", the line changed to '" & to_string(pwm) & "' after " & to_string(now - C_START, ns) & "." & add_msg_delimiter(msg), scope);
         return;
@@ -1090,7 +1106,7 @@ package body pwm_bfm_pkg is
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
   ) is
     constant C_PROC_NAME : string     := "pwm_drive_idle()";
-    constant C_VALUE     : std_ulogic := idle_value(config);
+    constant C_VALUE     : std_ulogic := pwm_idle_value(config);
   begin
     pwm <= C_VALUE;
     log(config.id_for_bfm, C_PROC_NAME & "=> line at '" & to_string(C_VALUE) & "' (" & to_upper(to_string(config.idle_level)) & ")." &
@@ -1266,9 +1282,13 @@ package body pwm_bfm_pkg is
       return;
     elsif v_timed_out then
       -- No active-going edge within the timeout: a constant level, reported as result
-      v_result.is_constant    := true;
-      v_result.constant_level := pwm;
-      if pwm = active_level(config) then
+      v_result.is_constant := true;
+      if is_valid_level(pwm) then
+        v_result.constant_level := line_level(pwm);
+      else
+        v_result.constant_level := pwm;
+      end if;
+      if line_level(pwm) = active_level(config) then
         v_result.duty_cycle     := 1.0;
         v_result.min_duty_cycle := 1.0;
         v_result.max_duty_cycle := 1.0;

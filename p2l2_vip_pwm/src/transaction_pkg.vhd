@@ -42,7 +42,7 @@ package transaction_pkg is
     TERMINATE_CURRENT_COMMAND,
     -- VVC local
     -- Generator role ('generate' is a VHDL reserved word, hence GENERATE_PERIODS)
-    GENERATE_PERIODS, START, UPDATE, STOP, ABORT,
+    GENERATE_PERIODS, START, UPDATE, STOP, ABORT, DRIVE_IDLE,
     -- Observer role
     MEASURE, CHECK, CHECK_DUTY
   );

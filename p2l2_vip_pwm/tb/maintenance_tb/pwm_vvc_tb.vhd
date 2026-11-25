@@ -127,6 +127,14 @@ begin
       shared_pwm_vvc_config(C_GEN).bfm_config := v_config;
     end procedure;
 
+    -- pwm_drive_idle() on the generator VVC, after a change of polarity or idle_level
+    procedure drive_idle(
+      constant msg : string) is
+    begin
+      pwm_drive_idle(PWM_VVCT, C_GEN, msg);
+      await_completion(PWM_VVCT, C_GEN, 1 us, msg);
+    end procedure;
+
     -- Starts a new edge log at the current time
     procedure start_test is
     begin
@@ -485,6 +493,8 @@ begin
       pwm_generate(PWM_VVCT, C_GEN, 50 ns, 10 ns, 2, "generate while running");
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "update, period 0 ns");
       pwm_update(PWM_VVCT, C_GEN, 0 ns, 0 ns, "update, period 0 ns");
+      increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "drive idle while running");
+      pwm_drive_idle(PWM_VVCT, C_GEN, "drive idle while running");
       await_completion(PWM_VVCT, C_GEN, 1 us, "errors while running");
       check_time(0 ns, "errors while running");
       -- A negative jitter set during the run: one TB_ERROR at the next boundary, the previous config is kept
@@ -502,15 +512,16 @@ begin
 
       log(ID_LOG_HDR, "Generator commands on an OBSERVER instance", C_SCOPE);
       start_test;
-      increment_expected_alerts_and_stop_limit(ERROR, 5, "wrong role");
+      increment_expected_alerts_and_stop_limit(ERROR, 6, "wrong role");
       v_alert_base := get_alert_counter(ERROR);
       pwm_generate(PWM_VVCT, C_OBS, 10 ns, 3 ns, 1, "generate on observer");
       pwm_start(PWM_VVCT, C_OBS, 10 ns, 3 ns, "start on observer");
       pwm_update(PWM_VVCT, C_OBS, 10 ns, 3 ns, "update on observer");
       pwm_stop(PWM_VVCT, C_OBS, "stop on observer");
       pwm_abort(PWM_VVCT, C_OBS, "abort on observer");
+      pwm_drive_idle(PWM_VVCT, C_OBS, "drive idle on observer");
       await_completion(PWM_VVCT, C_OBS, 1 us, "wrong role");
-      check_new_alerts(ERROR, 5, "wrong role");
+      check_new_alerts(ERROR, 6, "wrong role");
       check_rejected(C_OBS, "wrong role");
 
       -- A multicast reaches both roles; every instance of the other role raises the wrong-role ERROR
@@ -554,6 +565,10 @@ begin
           v_config.polarity   := polarity;
           v_config.idle_level := idle_level;
           set_config;
+          start_test;
+          drive_idle("drive idle, " & to_string(polarity) & ", " & to_string(idle_level));
+          check_time(0 ns, "drive idle at once");
+          check_idle("after drive idle, " & to_string(polarity) & ", " & to_string(idle_level));
           test_generate(10 ns, 3 ns, 1, "after generate, " & to_string(polarity) & ", " & to_string(idle_level));
 
           start_test;
@@ -735,6 +750,7 @@ begin
       v_config.polarity := ACTIVE_HIGH;
       set_config;
       -- Back to the active-high idle level
+      drive_idle("back to active-high");
       test_generate(10 ns, 3 ns, 1, "back to active-high");
 
       log(ID_LOG_HDR, "Two alignment changes in period 2, the last one (right) takes effect in period 3", C_SCOPE);
@@ -878,26 +894,121 @@ begin
       end loop;
 
     --============================================================================================================================
+    elsif GC_TESTCASE = "terminate_update_and_stop" then
+      -- Terminate_current_command withdraws a pending update or stop; at the period boundary they have taken effect
+      --============================================================================================================================
+      log(ID_LOG_HDR, "Terminate during pwm_update(): the update is withdrawn", C_SCOPE);
+      start_test;
+      pwm_start(PWM_VVCT, C_GEN, 100 ns, 30 ns, "start");
+      wait_until_rel(150 ns);
+      pwm_update(PWM_VVCT, C_GEN, 60 ns, 20 ns, "update, terminated");
+      wait_until_rel(170 ns);
+      terminate_current_command(PWM_VVCT, C_GEN, "terminate the update");
+      await_completion(PWM_VVCT, C_GEN, 10 ns, "terminated update");
+      check_time(170 ns, "update terminated at once");
+      wait_until_rel(350 ns);
+      pwm_stop(PWM_VVCT, C_GEN, "stop");
+      await_completion(PWM_VVCT, C_GEN, 1 us, "stop");
+      check_time(400 ns, "stop");
+      check_idle("after the stop");
+      check_expected(repeat_period(100 ns, 30 ns, 4), "update withdrawn");
+
+      log(ID_LOG_HDR, "Terminate during pwm_stop(): the generation continues, can be updated and stopped", C_SCOPE);
+      start_test;
+      pwm_start(PWM_VVCT, C_GEN, 100 ns, 30 ns, "start");
+      wait_until_rel(150 ns);
+      pwm_stop(PWM_VVCT, C_GEN, "stop, terminated");
+      wait_until_rel(170 ns);
+      terminate_current_command(PWM_VVCT, C_GEN, "terminate the stop");
+      await_completion(PWM_VVCT, C_GEN, 10 ns, "terminated stop");
+      check_time(170 ns, "stop terminated at once");
+      pwm_update(PWM_VVCT, C_GEN, 60 ns, 20 ns, "update after the terminated stop");
+      await_completion(PWM_VVCT, C_GEN, 1 us, "update after the terminated stop");
+      check_time(200 ns, "update at the next boundary");
+      pwm_stop(PWM_VVCT, C_GEN, "stop");
+      await_completion(PWM_VVCT, C_GEN, 1 us, "stop");
+      check_time(260 ns, "stop");
+      check_idle("after the stop");
+      check_expected(((100 ns, 30 ns), (100 ns, 30 ns), (60 ns, 20 ns)), "stop withdrawn");
+
+      log(ID_LOG_HDR, "Terminate at the period boundary: the update has taken effect", C_SCOPE);
+      start_test;
+      pwm_start(PWM_VVCT, C_GEN, 100 ns, 30 ns, "start");
+      wait_until_rel(150 ns);
+      pwm_update(PWM_VVCT, C_GEN, 60 ns, 20 ns, "update, terminate at the boundary");
+      wait_until_rel(200 ns);
+      terminate_current_command(PWM_VVCT, C_GEN, "terminate at the boundary");
+      await_completion(PWM_VVCT, C_GEN, 10 ns, "update at the boundary");
+      check_time(200 ns, "update at the boundary");
+      wait_until_rel(230 ns);
+      pwm_stop(PWM_VVCT, C_GEN, "stop");
+      await_completion(PWM_VVCT, C_GEN, 1 us, "stop");
+      check_time(260 ns, "stop");
+      check_expected(((100 ns, 30 ns), (100 ns, 30 ns), (60 ns, 20 ns)), "update at the boundary");
+
+      log(ID_LOG_HDR, "Terminate at the period boundary: the stop has taken effect", C_SCOPE);
+      start_test;
+      pwm_start(PWM_VVCT, C_GEN, 100 ns, 30 ns, "start");
+      wait_until_rel(150 ns);
+      pwm_stop(PWM_VVCT, C_GEN, "stop, terminate at the boundary");
+      wait_until_rel(200 ns);
+      terminate_current_command(PWM_VVCT, C_GEN, "terminate at the boundary");
+      await_completion(PWM_VVCT, C_GEN, 10 ns, "stop at the boundary");
+      check_time(200 ns, "stop at the boundary");
+      check_idle("after the stop at the boundary");
+      check_expected(repeat_period(100 ns, 30 ns, 2), "stop at the boundary");
+
+      log(ID_LOG_HDR, "A start after a stop terminated at the boundary works", C_SCOPE);
+      test_generate(100 ns, 30 ns, 1, "generate after the stop");
+
+    --============================================================================================================================
     elsif GC_TESTCASE = "config_changes_between_commands" then
       -- Config changes between commands take effect for the next command; jitter per run
       --============================================================================================================================
-      log(ID_LOG_HDR, "Polarity changed between two commands", C_SCOPE);
+      log(ID_LOG_HDR, "Polarity changed between two commands without pwm_drive_idle(): a WARNING, the first edge is missing", C_SCOPE);
       test_generate(100 ns, 30 ns, 2, "active-high");
       v_config.polarity := ACTIVE_LOW;
       set_config;
+      increment_expected_alerts(WARNING, 1, "line at the idle level of an earlier config");
+      v_alert_base := get_alert_counter(WARNING);
+      test_generate(100 ns, 30 ns, 2, "active-low, stale idle level");
+      check_new_alerts(WARNING, 1, "stale idle level");
+      check_edges_rel((30 ns, 100 ns, 130 ns), "101", "active-low, stale idle level, hard-coded");
+
+      log(ID_LOG_HDR, "Polarity changed with pwm_drive_idle(): the idle level at once, all edges", C_SCOPE);
+      v_config.polarity := ACTIVE_HIGH;
+      set_config;
+      start_test;
+      drive_idle("active-high idle");
+      check_time(0 ns, "drive idle at once");
+      check_edges_rel((0 => 0 ns), "0", "active-high idle, hard-coded");
+      v_config.polarity := ACTIVE_LOW;
+      set_config;
+      drive_idle("active-low idle");
       test_generate(100 ns, 30 ns, 2, "active-low");
-      check_edges_rel((30 ns, 100 ns, 130 ns), "101", "active-low, hard-coded");
+      check_edges_rel((0 ns, 30 ns, 100 ns, 130 ns), "0101", "active-low, hard-coded");
 
       log(ID_LOG_HDR, "Alignment and idle level changed between two commands", C_SCOPE);
       v_config.polarity   := ACTIVE_HIGH;
       v_config.alignment  := RIGHT_ALIGNED;
       v_config.idle_level := IDLE_ACTIVE;
       set_config;
+      drive_idle("right-aligned, idle active");
       test_generate(100 ns, 30 ns, 2, "right-aligned, idle active");
       v_config.alignment  := LEFT_ALIGNED;
       v_config.idle_level := IDLE_INACTIVE;
       set_config;
+      drive_idle("back to default");
       test_generate(100 ns, 30 ns, 1, "back to default");
+
+      log(ID_LOG_HDR, "Alignment changed only: no WARNING", C_SCOPE);
+      v_config.alignment := CENTER_ALIGNED;
+      set_config;
+      v_alert_base := get_alert_counter(WARNING);
+      test_generate(100 ns, 30 ns, 1, "center-aligned");
+      check_new_alerts(WARNING, 0, "alignment changed only");
+      v_config.alignment := LEFT_ALIGNED;
+      set_config;
 
       log(ID_LOG_HDR, "Jitter 5 ns, each run starts from the configured seeds", C_SCOPE);
       v_config.jitter := 5 ns;
@@ -994,6 +1105,7 @@ begin
       v_obs_config.polarity := ACTIVE_LOW;
       set_config;
       set_obs_config;
+      drive_idle("active-low idle");
       start_generator(100 ns, 30 ns);
       measure(C_OBS, 1 us, "active-low");
       check_measurement(100 ns, 30 ns, "active-low");

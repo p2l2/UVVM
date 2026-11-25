@@ -169,7 +169,7 @@ package vvc_methods_pkg is
   );
 
   -- Generator role: changes period and duty cycle of the continuous generation. Completes when the new values took
-  -- effect at the next period boundary.
+  -- effect at the next period boundary. terminate_current_command() withdraws an update that has not taken effect.
   procedure pwm_update(
     signal   VVCT                : inout t_vvc_target_record;
     constant vvc_instance_idx    : in    integer;
@@ -202,6 +202,7 @@ package vvc_methods_pkg is
   );
 
   -- Generator role: ends the continuous generation at the next period boundary, then drives the idle level.
+  -- terminate_current_command() withdraws the stop request; the generation continues.
   procedure pwm_stop(
     signal   VVCT                : inout t_vvc_target_record;
     constant vvc_instance_idx    : in    integer;
@@ -213,6 +214,17 @@ package vvc_methods_pkg is
   -- Generator role: ends a continuous run at once and drives the idle level. Queued like every command, so it cuts
   -- the waveform at once only if no command is queued before it. terminate_current_command() ends a pwm_generate().
   procedure pwm_abort(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  );
+
+  -- Generator role: drives the idle level of the current config at once. Not allowed during a continuous generation.
+  -- The VVC drives the idle level by itself only at time 0 (from GC_PWM_BFM_CONFIG) and at the end of each run, so call
+  -- this after changing polarity or idle_level in shared_pwm_vvc_config, before the next run.
+  procedure pwm_drive_idle(
     signal   VVCT                : inout t_vvc_target_record;
     constant vvc_instance_idx    : in    integer;
     constant msg                 : in    string;
@@ -611,6 +623,19 @@ package body vvc_methods_pkg is
     send_generator_command(VVCT, vvc_instance_idx, C_PROC_CALL, ABORT, 0 ns, 0 ns, 0, msg, scope, parent_msg_id_panel);
   end procedure;
 
+  procedure pwm_drive_idle(
+    signal   VVCT                : inout t_vvc_target_record;
+    constant vvc_instance_idx    : in    integer;
+    constant msg                 : in    string;
+    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
+    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
+  ) is
+    constant C_PROC_NAME : string := "pwm_drive_idle";
+    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ")";
+  begin
+    send_generator_command(VVCT, vvc_instance_idx, C_PROC_CALL, DRIVE_IDLE, 0 ns, 0 ns, 0, msg, scope, parent_msg_id_panel);
+  end procedure;
+
   procedure pwm_measure(
     signal   VVCT                : inout t_vvc_target_record;
     constant vvc_instance_idx    : in    integer;
@@ -703,7 +728,7 @@ package body vvc_methods_pkg is
   ) is
   begin
     case vvc_cmd.operation is
-      when GENERATE_PERIODS | START | UPDATE | STOP | ABORT | MEASURE | CHECK | CHECK_DUTY =>
+      when GENERATE_PERIODS | START | UPDATE | STOP | ABORT | DRIVE_IDLE | MEASURE | CHECK | CHECK_DUTY =>
         vvc_transaction_info_group.bt.operation          := vvc_cmd.operation;
         vvc_transaction_info_group.bt.period             := vvc_cmd.period;
         vvc_transaction_info_group.bt.active_time        := vvc_cmd.active_time;
@@ -749,7 +774,7 @@ package body vvc_methods_pkg is
   ) is
   begin
     case vvc_cmd.operation is
-      when GENERATE_PERIODS | START | UPDATE | STOP | ABORT | MEASURE | CHECK | CHECK_DUTY =>
+      when GENERATE_PERIODS | START | UPDATE | STOP | ABORT | DRIVE_IDLE | MEASURE | CHECK | CHECK_DUTY =>
         vvc_transaction_info_group.bt := C_BASE_TRANSACTION_SET_DEFAULT;
 
       when others =>

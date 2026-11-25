@@ -20,6 +20,7 @@ P2L2 VIP PWM
   * :ref:`pwm_update_vvc`
   * :ref:`pwm_stop_vvc`
   * :ref:`pwm_abort_vvc`
+  * :ref:`pwm_drive_idle_vvc`
   * :ref:`pwm_measure_vvc`
   * :ref:`pwm_check_vvc`
 
@@ -90,7 +91,7 @@ Result of :ref:`pwm_measure_bfm`. Default value (also the result after a missing
 |                              |                              |                 | line held constant_level (0 % or 100 %).        |
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
 | constant_level               | std_ulogic                   | 'U'             | Line level when is_constant ('0', '1', or 'Z'   |
-|                              |                              |                 | with IDLE_HIGH_Z), else 'U'                     |
+|                              |                              |                 | with IDLE_HIGH_Z; 'L'/'H' as '0'/'1'), else 'U' |
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
 
 .. _t_pwm_bfm_config:
@@ -489,7 +490,7 @@ For all overloads:
 
 Conversion functions
 ----------------------------------------------------------------------------------------------------------------------------------
-The BFM package also provides the functions used to convert a duty cycle to an active time:
+The BFM package also provides the functions used to convert a duty cycle to an active time, and the idle value:
 
 
 +------------------------------------------------------------------+--------------------------------------------------------------+
@@ -502,6 +503,9 @@ The BFM package also provides the functions used to convert a duty cycle to an a
 | pwm_count_to_active_time(count, resolution, period) return time  | (count / resolution) * period, rounded as                    |
 |                                                                  | pwm_duty_to_active_time(). Requires 0 <= count <=            |
 |                                                                  | resolution.                                                  |
++------------------------------------------------------------------+--------------------------------------------------------------+
+| pwm_idle_value(config) return std_ulogic                         | The value driven on the line when idle, given by             |
+|                                                                  | config.idle_level and config.polarity ('Z' for IDLE_HIGH_Z). |
 +------------------------------------------------------------------+--------------------------------------------------------------+
 
 Local BFM overloads
@@ -592,6 +596,12 @@ sets where the pulse sits within the period:
 * Times given as duty or count/resolution are rounded to the nearest simulator resolution unit, half a unit up.
 * An observer measures T from active-going edge to active-going edge and t_on from the active-going to the inactive-going
   edge. It cannot tell alignments apart from a constant waveform.
+* With IDLE_ACTIVE, the line is already at the active level when a left-aligned generation starts, so the first period
+  has no active-going edge and an observer measures one period fewer. The return to the idle level after the last period
+  is an active-going edge that starts no complete period.
+* An observer reads the weak levels 'L' and 'H' as '0' and '1', e.g. on a line with a pull resistor. A change between a
+  strong and a weak value of the same level (e.g. '1' to 'H') is no edge. Any other value than '0', '1', 'L' and 'H'
+  raises an alert, except 'Z' before the first active-going edge with IDLE_HIGH_Z.
 * An observer cannot detect a wrong polarity either: with the opposite config.polarity, it measures the same T, but
   T - t_on as active time and 1 - d as duty cycle, so a 50 % signal passes every check. Set config.polarity of the
   observer to the polarity of the signal.
@@ -604,7 +614,8 @@ Jitter
 With config.jitter = j > 0 ns, every generated edge is moved by a random offset in [-j, +j] from its ideal time. The
 offsets do not accumulate, so the mean period stays T. Edges are never reordered, every pulse and gap stays at least one
 resolution unit long, and an edge at the start of a period is not moved before the period start (so these edges only
-move later). The randomization starts from config.jitter_seed1/2 in every pwm_generate() call and every VVC run, so a
+move later). A period start without an edge, e.g. center-aligned when the line is already inactive, is not moved and
+does not delay the following edge. The randomization starts from config.jitter_seed1/2 in every pwm_generate() call and every VVC run, so a
 run with the same seeds is reproducible. 0 % and 100 % are not affected.
 
 In the VVC, seed 1 is shifted by the instance index (GC_INSTANCE_IDX, wrapped within the seed range of
@@ -912,6 +923,7 @@ pwm_update()
 Adds an update command to the PWM VVC executor queue. The new period and duty cycle of the continuous generation
 take effect at the next period boundary; the current period is completed with the old values. The command completes when
 the new values took effect. GENERATOR role only. A TB_ERROR is raised if no continuous run is active.
+terminate_current_command() withdraws an update that has not taken effect yet.
 
 .. code-block::
 
@@ -958,7 +970,8 @@ pwm_stop()
 ----------------------------------------------------------------------------------------------------------------------------------
 Adds a stop command to the PWM VVC executor queue. The continuous generation ends at the next period boundary
 (the current period is completed), then the VVC drives the idle level. The command completes when the line is idle.
-GENERATOR role only. A TB_ERROR is raised if no run is active.
+GENERATOR role only. A TB_ERROR is raised if no run is active. terminate_current_command() withdraws a stop that has not
+taken effect yet; the continuous generation then continues.
 
 .. code-block::
 
@@ -1020,6 +1033,44 @@ terminate_current_command().
 
     -- Examples:
     pwm_abort(PWM_VVCT, 1, "Abort now", C_SCOPE);
+
+
+.. _pwm_drive_idle_vvc:
+
+pwm_drive_idle()
+----------------------------------------------------------------------------------------------------------------------------------
+Adds a drive-idle command to the PWM VVC executor queue. The VVC drives the idle level of the current configuration
+(config.idle_level and config.polarity) at once. GENERATOR role only. A TB_ERROR is raised if a continuous run is active.
+
+The VVC drives the idle level by itself only at time 0 (from GC_PWM_BFM_CONFIG) and at the end of each run. Call
+pwm_drive_idle() after changing config.polarity or config.idle_level in shared_pwm_vvc_config, before the next run.
+Otherwise the line stays at the old idle level, which can be the new active level, so the first edge of the next run may
+be missing. pwm_generate() and pwm_start() raise a WARNING in this case.
+
+.. code-block::
+
+    pwm_drive_idle(VVCT, vvc_instance_idx, msg, [scope])
+
++----------+--------------------+--------+------------------------------+---------------------------------------------------------+
+| Object   | Name               | Dir.   | Type                         | Description                                             |
++==========+====================+========+==============================+=========================================================+
+| signal   | VVCT               | inout  | t_vvc_target_record          | VVC target type compiled into each VVC in order to      |
+|          |                    |        |                              | differentiate between VVCs                              |
++----------+--------------------+--------+------------------------------+---------------------------------------------------------+
+| constant | vvc_instance_idx   | in     | integer                      | Instance number of the VVC                              |
++----------+--------------------+--------+------------------------------+---------------------------------------------------------+
+| constant | msg                | in     | string                       | A custom message to be appended in the log/alert        |
++----------+--------------------+--------+------------------------------+---------------------------------------------------------+
+| constant | scope              | in     | string                       | Describes the scope from which the log/alert            |
+|          |                    |        |                              | originates. Default value is C_VVC_CMD_SCOPE_DEFAULT    |
+|          |                    |        |                              | defined in adaptations_pkg.                             |
++----------+--------------------+--------+------------------------------+---------------------------------------------------------+
+
+.. code-block::
+
+    -- Examples:
+    shared_pwm_vvc_config(1).bfm_config.polarity := ACTIVE_LOW;
+    pwm_drive_idle(PWM_VVCT, 1, "Idle level of the active-low config", C_SCOPE);
 
 
 .. _pwm_measure_vvc:
@@ -1154,7 +1205,7 @@ Roles and generator run state
   continuous run started by pwm_start() is active. After pwm_start() has completed, the VVC executor is inactive although
   the waveform keeps running (this matters for :ref:`vvc_framework_activity_watchdog` and await_uvvm_completion()).
 * Run-state errors raise a TB_ERROR and leave the line unchanged: pwm_start() while a run is active, pwm_update(),
-  pwm_stop() or pwm_abort() without a run, pwm_generate() during a continuous run.
+  pwm_stop() or pwm_abort() without a run, pwm_generate() or pwm_drive_idle() during a continuous run.
 * Invalid duty or count/resolution values raise a TB_ERROR in the method and the command is not queued. Invalid period,
   active_time, num_periods and config.jitter values raise a TB_ERROR in the executor and the command is skipped.
 * Changes of shared_pwm_vvc_config(idx).bfm_config take effect at the next period boundary. A negative config.jitter set
@@ -1163,9 +1214,12 @@ Roles and generator run state
   configuration change issued at the same simulation time as a period boundary may take effect only at the following
   boundary, e.g. pwm_stop() issued exactly N periods after pwm_start() can give N+1 periods. Issue such requests before the
   boundary time.
-* The idle level is driven from GC_PWM_BFM_CONFIG at time 0 and from the current configuration at the end of each run.
-* terminate_current_command() during pwm_generate() aborts the generation. During pwm_update() or pwm_stop() it ends the
-  wait only; the request stays pending. During an observer command it ends the observation at once, without an alert.
+* The idle level is driven from GC_PWM_BFM_CONFIG at time 0, from the current configuration at the end of each run and
+  by pwm_drive_idle(). See :ref:`pwm_drive_idle_vvc`.
+* terminate_current_command() during pwm_generate() aborts the generation. During pwm_update() or pwm_stop() it
+  withdraws the request, unless the period boundary has taken it in the same delta cycle (then the command completed).
+  During an observer command it ends the observation at once, without an alert. A terminated command is logged with
+  ID_TERMINATE_CMD.
 * insert_delay() with a number of clock cycles raises a TB_ERROR, as the VVC has no clock. Use a time.
 
 
@@ -1184,8 +1238,8 @@ Transaction Info
     | Info field                   | Type                         | Default         | Description                                     |
     +==============================+==============================+=================+=================================================+
     | operation                    | t_operation                  | NO_OPERATION    | Current VVC operation, e.g. GENERATE_PERIODS,   |
-    |                              |                              |                 | START, UPDATE, STOP, ABORT, MEASURE, CHECK,     |
-    |                              |                              |                 | CHECK_DUTY                                      |
+    |                              |                              |                 | START, UPDATE, STOP, ABORT, DRIVE_IDLE,         |
+    |                              |                              |                 | MEASURE, CHECK, CHECK_DUTY                      |
     +------------------------------+------------------------------+-----------------+-------------------------------------------------+
     | period                       | time                         | 0 ns            | Generator: the generated period. Observer: the  |
     |                              |                              |                 | expected period.                                |
