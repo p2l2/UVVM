@@ -14,8 +14,9 @@
 -- Description   : Test harness of pwm_vvc_tb:
 --                 - i1_pwm_vvc (GENERATOR, idx 1) and i2_pwm_vvc (OBSERVER, idx 2) on the loopback line pwm_loop
 --                 - i3_pwm_vvc (OBSERVER, idx 3) on pwm_inject, driven by the testbench for error injection
+--                 - i4_pwm_vvc (GENERATOR, idx 4) on pwm_loop_b, a second channel for per-instance jitter
 --                 - an edge logger that records every event on pwm_loop in shared_th_edge_log, as independent
---                   reference for the generation tests
+--                   reference for the generation tests, and one for pwm_loop_b in shared_th_edge_log_b
 ------------------------------------------------------------------------------------------
 
 library ieee;
@@ -46,6 +47,7 @@ architecture struct of pwm_th is
 
   signal pwm_loop        : std_logic;
   signal pwm_inject_line : std_logic;
+  signal pwm_loop_b      : std_logic;
 
 begin
 
@@ -89,13 +91,29 @@ begin
       pwm_vvc_if => pwm_inject_line
     );
 
+  i4_pwm_vvc : entity p2l2_vip_pwm.pwm_vvc
+    generic map(
+      GC_INSTANCE_IDX   => 4,
+      GC_ROLE           => GENERATOR,
+      GC_PWM_BFM_CONFIG => GC_PWM_BFM_CONFIG
+    )
+    port map(
+      pwm_vvc_if => pwm_loop_b
+    );
+
   -----------------------------------------------------------------------------
-  -- Edge logger: every event on the loopback line, from time 0
+  -- Edge loggers: every event on the loopback line and on the second channel, from time 0
   -----------------------------------------------------------------------------
   p_edge_logger : process is
   begin
     wait on pwm_loop;
     shared_th_edge_log.add(now, pwm_loop);
   end process p_edge_logger;
+
+  p_edge_logger_b : process is
+  begin
+    wait on pwm_loop_b;
+    shared_th_edge_log_b.add(now, pwm_loop_b);
+  end process p_edge_logger_b;
 
 end architecture struct;

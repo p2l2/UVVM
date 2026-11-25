@@ -66,7 +66,8 @@ Result of :ref:`pwm_measure_bfm`. Default value (also the result after a missing
 |                              |                              |                 | is_constant.                                    |
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
 | duty_cycle                   | real                         | 0.0             | Sum of the active times / sum of the periods.   |
-|                              |                              |                 | 0.0 or 1.0 when is_constant.                    |
+|                              |                              |                 | When is_constant: 1.0 for the active level,     |
+|                              |                              |                 | else 0.0 (inactive level or 'Z').               |
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
 | min_period                   | time                         | 0 ns            | Shortest measured period. 0 ns when             |
 |                              |                              |                 | is_constant.                                    |
@@ -119,7 +120,9 @@ Default value for the record is C_PWM_BFM_CONFIG_DEFAULT.
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
 | jitter_seed1                 | positive                     | C_RAND_INIT_SE\ | Seed of the jitter randomization. Every         |
 |                              |                              | ED_1            | pwm_generate() call and every VVC run starts    |
-|                              |                              |                 | from the seeds, so a run is reproducible.       |
+|                              |                              |                 | from the seeds, so a run is reproducible. The   |
+|                              |                              |                 | VVC shifts it by GC_INSTANCE_IDX, see           |
+|                              |                              |                 | :ref:`pwm_jitter`.                              |
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
 | jitter_seed2                 | positive                     | C_RAND_INIT_SE\ | Second seed of the jitter randomization         |
 |                              |                              | ED_2            |                                                 |
@@ -592,6 +595,11 @@ offsets do not accumulate, so the mean period stays T. Edges are never reordered
 resolution unit long, and an edge at the start of a period is not moved before the period start (so these edges only
 move later). The randomization starts from config.jitter_seed1/2 in every pwm_generate() call and every VVC run, so a
 run with the same seeds is reproducible. 0 % and 100 % are not affected.
+
+In the VVC, seed 1 is shifted by the instance index (GC_INSTANCE_IDX, wrapped within the seed range of
+ieee.math_real.uniform), so VVC instances with the same configuration jitter independently. Instance 0 uses the
+configured seeds unchanged and generates the same waveform as the BFM. For identical jitter on two instances, lower
+config.jitter_seed1 of the instance with the higher index by the index difference.
 
 
 .. _pwm_timeout:

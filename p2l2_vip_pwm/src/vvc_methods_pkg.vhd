@@ -446,7 +446,7 @@ package body vvc_methods_pkg is
   ) is
     constant C_PROC_NAME : string := "pwm_generate";
     constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_string(period, ns) & ", duty " &
-                                     to_string(duty, 6) & ", " & to_string(num_periods) & ")";
+                                     to_string(duty, C_PWM_DECIMAL_DIGITS) & ", " & to_string(num_periods) & ")";
   begin
     if duty_is_valid(C_PROC_CALL, duty, msg, scope) then
       send_generator_command(VVCT, vvc_instance_idx, C_PROC_CALL, GENERATE_PERIODS, period, pwm_duty_to_active_time(duty, period), num_periods, msg,
@@ -502,7 +502,7 @@ package body vvc_methods_pkg is
   ) is
     constant C_PROC_NAME : string := "pwm_start";
     constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_string(period, ns) & ", duty " &
-                                     to_string(duty, 6) & ")";
+                                     to_string(duty, C_PWM_DECIMAL_DIGITS) & ")";
   begin
     if duty_is_valid(C_PROC_CALL, duty, msg, scope) then
       send_generator_command(VVCT, vvc_instance_idx, C_PROC_CALL, START, period, pwm_duty_to_active_time(duty, period), 0, msg,
@@ -557,7 +557,7 @@ package body vvc_methods_pkg is
   ) is
     constant C_PROC_NAME : string := "pwm_update";
     constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_string(period, ns) & ", duty " &
-                                     to_string(duty, 6) & ")";
+                                     to_string(duty, C_PWM_DECIMAL_DIGITS) & ")";
   begin
     if duty_is_valid(C_PROC_CALL, duty, msg, scope) then
       send_generator_command(VVCT, vvc_instance_idx, C_PROC_CALL, UPDATE, period, pwm_duty_to_active_time(duty, period), 0, msg,
@@ -660,7 +660,7 @@ package body vvc_methods_pkg is
     constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
   ) is
     constant C_PROC_NAME : string := "pwm_check";
-    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", duty " & to_string(duty, 6) & ", " &
+    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", duty " & to_string(duty, C_PWM_DECIMAL_DIGITS) & ", " &
                                      to_string(num_periods) & timeout_to_string(timeout) & ")";
   begin
     send_observer_command(VVCT, vvc_instance_idx, C_PROC_CALL, CHECK_DUTY, 0 ns, 0 ns, duty, num_periods, alert_level, timeout, msg,

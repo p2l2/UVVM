@@ -352,6 +352,7 @@ end package body pwm_tb_pkg;
 use work.pwm_tb_pkg.all;
 
 package pwm_th_pkg is
-  -- Filled by the edge logger in pwm_th (every event on the loopback line), read by pwm_vvc_tb
-  shared variable shared_th_edge_log : t_edge_log;
+  -- Filled by the edge loggers in pwm_th (every event on the loopback line and on the second channel), read by pwm_vvc_tb
+  shared variable shared_th_edge_log   : t_edge_log;
+  shared variable shared_th_edge_log_b : t_edge_log;
 end package pwm_th_pkg;

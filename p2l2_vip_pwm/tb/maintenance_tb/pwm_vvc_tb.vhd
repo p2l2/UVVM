@@ -48,7 +48,8 @@ architecture func of pwm_vvc_tb is
 
   constant C_GEN : natural := 1;        -- i1_pwm_vvc, GENERATOR on pwm_loop
   constant C_OBS : natural := 2;        -- i2_pwm_vvc, OBSERVER on pwm_loop
-  constant C_INJ : natural := 3;        -- i3_pwm_vvc, OBSERVER on pwm_inject
+  constant C_INJ   : natural := 3;      -- i3_pwm_vvc, OBSERVER on pwm_inject
+  constant C_GEN_B : natural := 4;      -- i4_pwm_vvc, GENERATOR on pwm_loop_b
 
   type t_time_array is array (natural range <>) of time;
 
@@ -94,13 +95,14 @@ begin
   p_main : process is
     alias pwm_loop is << signal i_test_harness.pwm_loop : std_logic >>;
 
-    variable v_config  : t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT;
-    variable v_start   : time;
-    variable v_level   : std_logic;
-    variable v_edge    : t_edge;
-    variable v_edges_a : t_edge_array(0 to 199);
-    variable v_edges_b : t_edge_array(0 to 199);
-    variable v_differs : boolean;
+    variable v_config   : t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT;
+    variable v_config_b : t_pwm_bfm_config; -- for C_GEN_B
+    variable v_start    : time;
+    variable v_level    : std_logic;
+    variable v_edge     : t_edge;
+    variable v_edges_a  : t_edge_array(0 to 199);
+    variable v_edges_b  : t_edge_array(0 to 199);
+    variable v_differs  : boolean;
 
     -- Lets the last assignment to pwm_loop take effect and the edge logger record it
     procedure settle is
@@ -208,10 +210,11 @@ begin
     end procedure;
 
     procedure save_edges(
-      variable edges : out t_edge_array) is
+      variable edge_log : inout t_edge_log;
+      variable edges    : out t_edge_array) is
     begin
-      for i in 0 to minimum(shared_th_edge_log.count, edges'length) - 1 loop
-        v_edge := shared_th_edge_log.get(i);
+      for i in 0 to minimum(edge_log.count, edges'length) - 1 loop
+        v_edge := edge_log.get(i);
         edges(edges'low + i) := (v_edge.time_stamp - v_start, v_edge.level);
       end loop;
     end procedure;
@@ -230,7 +233,33 @@ begin
                                                               v_config.alignment, tb_active_level(v_config.polarity),
                                                               tb_idle_value(v_config.polarity, v_config.idle_level)),
                            v_config.jitter, msg, C_SCOPE);
-      save_edges(edges);
+      save_edges(shared_th_edge_log, edges);
+    end procedure;
+
+    -- pwm_generate() with jitter on both generators at the same time, C_GEN_B with config_b; each line checked against
+    -- the ideal edges; the edges relative to v_start in v_edges_a (C_GEN) and v_edges_b (C_GEN_B)
+    procedure test_jitter_pair(
+      constant config_b : t_pwm_bfm_config;
+      constant msg      : string) is
+    begin
+      start_test;
+      shared_th_edge_log_b.clear;
+      shared_pwm_vvc_config(C_GEN_B).bfm_config := config_b;
+      pwm_generate(PWM_VVCT, C_GEN, 100 ns, 50 ns, 50, msg);
+      pwm_generate(PWM_VVCT, C_GEN_B, 100 ns, 50 ns, 50, msg);
+      await_completion(PWM_VVCT, C_GEN, 6 us, msg);
+      await_completion(PWM_VVCT, C_GEN_B, 6 us, msg);
+      settle;
+      check_jittered_edges(shared_th_edge_log, expected_edges(v_start, v_level, repeat_period(100 ns, 50 ns, 50),
+                                                              v_config.alignment, tb_active_level(v_config.polarity),
+                                                              tb_idle_value(v_config.polarity, v_config.idle_level)),
+                           v_config.jitter, msg & ", first generator", C_SCOPE);
+      check_jittered_edges(shared_th_edge_log_b, expected_edges(v_start, v_level, repeat_period(100 ns, 50 ns, 50),
+                                                                config_b.alignment, tb_active_level(config_b.polarity),
+                                                                tb_idle_value(config_b.polarity, config_b.idle_level)),
+                           config_b.jitter, msg & ", second generator", C_SCOPE);
+      save_edges(shared_th_edge_log, v_edges_a);
+      save_edges(shared_th_edge_log_b, v_edges_b);
     end procedure;
 
     constant C_DUTY_SEQUENCE : t_period_param_array := ((10 ns, 5 ns), (10 ns, 0 ns), (10 ns, 5 ns), (10 ns, 10 ns), (10 ns, 5 ns));
@@ -495,11 +524,11 @@ begin
       check_time(200 ns, "generate multicast");
       check_expected(repeat_period(100 ns, 30 ns, 2), "generate multicast");
       start_test;
-      increment_expected_alerts_and_stop_limit(ERROR, 1, "measure multicast");
+      increment_expected_alerts_and_stop_limit(ERROR, 2, "measure multicast");
       v_alert_base := get_alert_counter(ERROR);
       pwm_measure(PWM_VVCT, ALL_INSTANCES, "measure multicast", 1, 200 ns);
       await_completion(PWM_VVCT, ALL_INSTANCES, 1 us, "measure multicast");
-      check_new_alerts(ERROR, 1, "measure multicast, one for the GENERATOR");
+      check_new_alerts(ERROR, 2, "measure multicast, one per GENERATOR");
 
       log(ID_LOG_HDR, "Insert_delay() in clock cycles", C_SCOPE);
       start_test;
@@ -882,6 +911,32 @@ begin
       test_jitter(v_edges_b, "jitter, other seeds");
       v_differs := v_edges_a /= v_edges_b;
       check_value(v_differs, true, ERROR, "other seeds: different edges", C_SCOPE);
+      v_config := C_PWM_BFM_CONFIG_DEFAULT;
+      set_config;
+
+    --============================================================================================================================
+    elsif GC_TESTCASE = "jitter_seeds_per_instance" then
+      -- Two generators with the same configuration jitter independently: each VVC instance shifts seed 1 by its index
+      --============================================================================================================================
+      log(ID_LOG_HDR, "Jitter 5 ns, same configuration on both generators", C_SCOPE);
+      v_config.jitter := 5 ns;
+      set_config;
+      test_jitter_pair(v_config, "same configuration");
+      v_differs := v_edges_a /= v_edges_b;
+      check_value(v_differs, true, ERROR, "same configuration: different edges", C_SCOPE);
+
+      log(ID_LOG_HDR, "Seed 1 of the second generator lowered by the index difference", C_SCOPE);
+      v_config_b              := v_config;
+      v_config_b.jitter_seed1 := v_config.jitter_seed1 - (C_GEN_B - C_GEN);
+      test_jitter_pair(v_config_b, "seeds aligned");
+      check_value(v_edges_a = v_edges_b, true, ERROR, "seeds aligned: identical edges", C_SCOPE);
+
+      log(ID_LOG_HDR, "Seed 1 at its maximum wraps around without an error", C_SCOPE);
+      v_config.jitter_seed1   := 2147483562; -- largest seed 1 accepted by ieee.math_real.uniform
+      set_config;
+      v_config_b.jitter_seed1 := v_config.jitter_seed1 - (C_GEN_B - C_GEN);
+      test_jitter_pair(v_config_b, "seed 1 at its maximum");
+      check_value(v_edges_a = v_edges_b, true, ERROR, "seed 1 at its maximum: identical edges", C_SCOPE);
       v_config := C_PWM_BFM_CONFIG_DEFAULT;
       set_config;
 

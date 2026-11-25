@@ -30,6 +30,9 @@ package pwm_bfm_pkg is
   --==========================================================================================
   constant C_BFM_SCOPE : string := "PWM BFM";
 
+  constant C_PWM_DECIMAL_DIGITS      : positive := 6;  -- Decimals of real values (duty cycles, tolerances) in logs and alerts
+  constant C_PWM_DECIMAL_DIGITS_FINE : positive := 15; -- Decimals of very small real values, e.g. duty_rounding_margin
+
   type t_pwm_role       is (GENERATOR, OBSERVER);
   type t_pwm_polarity   is (ACTIVE_HIGH, ACTIVE_LOW);
   type t_pwm_alignment  is (LEFT_ALIGNED, RIGHT_ALIGNED, CENTER_ALIGNED);
@@ -740,11 +743,11 @@ package body pwm_bfm_pkg is
       alert(TB_ERROR, proc_call & "=> Failed. config.active_time_tolerance must be >= 0 ns, was " &
             to_string(config.active_time_tolerance, ns) & "." & add_msg_delimiter(msg), scope);
     elsif duty_tolerance and (config.duty_tolerance < 0.0 or config.duty_tolerance > 1.0) then
-      alert(TB_ERROR, proc_call & "=> Failed. config.duty_tolerance must be within 0.0 to 1.0, was " & to_string(config.duty_tolerance, 6) &
+      alert(TB_ERROR, proc_call & "=> Failed. config.duty_tolerance must be within 0.0 to 1.0, was " & to_string(config.duty_tolerance, C_PWM_DECIMAL_DIGITS) &
             "." & add_msg_delimiter(msg), scope);
     elsif duty_tolerance and config.duty_rounding_margin < 0.0 then
       alert(TB_ERROR, proc_call & "=> Failed. config.duty_rounding_margin must be >= 0.0, was " &
-            to_string(config.duty_rounding_margin, 15) & "." & add_msg_delimiter(msg), scope);
+            to_string(config.duty_rounding_margin, C_PWM_DECIMAL_DIGITS_FINE) & "." & add_msg_delimiter(msg), scope);
     else
       valid := true;
     end if;
@@ -1022,8 +1025,8 @@ package body pwm_bfm_pkg is
         v_duty := duty_of(v_active_time, v_period);
         if abs (v_duty - duty) > config.duty_tolerance + config.duty_rounding_margin then
           alert(alert_level, proc_call & "=> Failed in period " & to_string(i) & "/" & to_string(num_periods) & ". Duty cycle was " &
-                to_string(v_duty, 6) & " (t_on " & to_string(v_active_time, ns) & ", T " & to_string(v_period, ns) & "), expected " &
-                to_string(duty, 6) & " +-" & to_string(config.duty_tolerance, 6) & "." & add_msg_delimiter(msg), scope);
+                to_string(v_duty, C_PWM_DECIMAL_DIGITS) & " (t_on " & to_string(v_active_time, ns) & ", T " & to_string(v_period, ns) & "), expected " &
+                to_string(duty, C_PWM_DECIMAL_DIGITS) & " +-" & to_string(config.duty_tolerance, C_PWM_DECIMAL_DIGITS) & "." & add_msg_delimiter(msg), scope);
           v_num_failed := v_num_failed + 1;
         end if;
       else
@@ -1048,7 +1051,7 @@ package body pwm_bfm_pkg is
 
     if v_num_failed = 0 and check_duty then
       log(config.id_for_bfm, proc_call & "=> OK, " & to_string(num_periods) & " period(s) checked (duty +-" &
-          to_string(config.duty_tolerance, 6) & ")." & add_msg_delimiter(msg), scope, msg_id_panel);
+          to_string(config.duty_tolerance, C_PWM_DECIMAL_DIGITS) & ")." & add_msg_delimiter(msg), scope, msg_id_panel);
     elsif v_num_failed = 0 then
       log(config.id_for_bfm, proc_call & "=> OK, " & to_string(num_periods) & " period(s) checked (T +-" &
           to_string(config.period_tolerance, ns) & ", t_on +-" & to_string(config.active_time_tolerance, ns) & ")." &
@@ -1173,7 +1176,7 @@ package body pwm_bfm_pkg is
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
   ) is
-    constant C_PROC_NAME : string := "pwm_generate(" & to_string(period, ns) & ", duty " & to_string(duty, 6) & ", " &
+    constant C_PROC_NAME : string := "pwm_generate(" & to_string(period, ns) & ", duty " & to_string(duty, C_PWM_DECIMAL_DIGITS) & ", " &
                                      to_string(num_periods) & ")";
   begin
     if duty < 0.0 or duty > 1.0 then
@@ -1276,7 +1279,7 @@ package body pwm_bfm_pkg is
       alert(config.constant_level_severity, C_PROC_NAME & "=> Constant level '" & to_string(pwm) & "': no active-going edge within " &
             to_string(v_timeout, ns) & "." & add_msg_delimiter(msg), scope);
       log(config.id_for_bfm, C_PROC_NAME & "=> constant level '" & to_string(pwm) & "' (no active-going edge within " &
-          to_string(v_timeout, ns) & "), duty cycle " & to_string(v_result.duty_cycle, 1) & "." & add_msg_delimiter(msg), scope, msg_id_panel);
+          to_string(v_timeout, ns) & "), duty cycle " & to_string(v_result.duty_cycle, C_PWM_DECIMAL_DIGITS) & "." & add_msg_delimiter(msg), scope, msg_id_panel);
       return;
     end if;
 
@@ -1316,12 +1319,12 @@ package body pwm_bfm_pkg is
     result               := v_result;
     if num_periods = 1 then
       log(config.id_for_bfm, C_PROC_NAME & "=> T " & to_string(v_result.period, ns) & ", t_on " & to_string(v_result.active_time, ns) &
-          ", duty cycle " & to_string(v_result.duty_cycle, 6) & "." & add_msg_delimiter(msg), scope, msg_id_panel);
+          ", duty cycle " & to_string(v_result.duty_cycle, C_PWM_DECIMAL_DIGITS) & "." & add_msg_delimiter(msg), scope, msg_id_panel);
     else
       log(config.id_for_bfm, C_PROC_NAME & "=> mean (min..max): T " & to_string(v_result.period, ns) & " (" &
           to_string(v_result.min_period, ns) & ".." & to_string(v_result.max_period, ns) & "), t_on " & to_string(v_result.active_time, ns) &
           " (" & to_string(v_result.min_active_time, ns) & ".." & to_string(v_result.max_active_time, ns) & "), duty cycle " &
-          to_string(v_result.duty_cycle, 6) & " (" & to_string(v_result.min_duty_cycle, 6) & ".." & to_string(v_result.max_duty_cycle, 6) &
+          to_string(v_result.duty_cycle, C_PWM_DECIMAL_DIGITS) & " (" & to_string(v_result.min_duty_cycle, C_PWM_DECIMAL_DIGITS) & ".." & to_string(v_result.max_duty_cycle, C_PWM_DECIMAL_DIGITS) &
           ")." & add_msg_delimiter(msg), scope, msg_id_panel);
     end if;
   end procedure;
@@ -1396,7 +1399,7 @@ package body pwm_bfm_pkg is
     constant msg_id_panel  : in t_msg_id_panel;
     constant config        : in t_pwm_bfm_config
   ) is
-    constant C_PROC_NAME : string  := "pwm_check(duty " & to_string(duty, 6) & ", " & to_string(num_periods) & ")";
+    constant C_PROC_NAME : string  := "pwm_check(duty " & to_string(duty, C_PWM_DECIMAL_DIGITS) & ", " & to_string(num_periods) & ")";
     constant C_CONSTANT   : boolean := duty = 0.0 or duty = 1.0;
     variable v_timeout    : time;
     variable v_valid      : boolean;

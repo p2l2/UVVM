@@ -506,6 +506,8 @@ begin
   -- - Drives the idle level from time 0 and runs the generation requested by the executor, period by period, so that
   --   the executor stays free for UPDATE, STOP and ABORT during a continuous generation.
   -- - Latches update_req and vvc_config.bfm_config at every period boundary.
+  -- - Every run starts from the configured jitter seeds, seed 1 shifted by GC_INSTANCE_IDX, so that a run is
+  --   reproducible and instances with the same configuration jitter independently.
   -- - The BFM log of each period and of the idle level is disabled (config.id_for_bfm); the executor logs the commands.
   -- OBSERVER role: drives 'Z' permanently.
   --==========================================================================================
@@ -521,6 +523,21 @@ begin
     variable v_seed2          : positive;
     variable v_aborted        : boolean;
     variable v_jitter_alerted : boolean;
+
+    constant C_UNIFORM_SEED1_MAX : positive := 2147483562; -- Largest seed 1 accepted by ieee.math_real.uniform
+
+    -- The configured seed 1 shifted by GC_INSTANCE_IDX, wrapped within 1 to C_UNIFORM_SEED1_MAX without an overflow
+    function instance_seed1(
+      constant seed1 : in positive
+    ) return positive is
+      constant C_OFFSET : natural := (seed1 - 1) mod C_UNIFORM_SEED1_MAX;
+    begin
+      if C_OFFSET >= C_UNIFORM_SEED1_MAX - GC_INSTANCE_IDX then
+        return C_OFFSET - (C_UNIFORM_SEED1_MAX - GC_INSTANCE_IDX) + 1;
+      else
+        return C_OFFSET + GC_INSTANCE_IDX + 1;
+      end if;
+    end function;
 
     -- vvc_config.msg_id_panel without the BFM log of every period
     impure function waveform_msg_id_panel(
@@ -550,8 +567,8 @@ begin
       v_update_idx     := update_req.idx;
       v_stop_idx       := stop_req;
       v_config         := vvc_config.bfm_config;
-      -- Every run starts from the configured seeds, so it is reproducible
-      v_seed1          := v_config.jitter_seed1;
+      -- Every run starts from the configured seeds, so it is reproducible; seed 1 differs per instance
+      v_seed1          := instance_seed1(v_config.jitter_seed1);
       v_seed2          := v_config.jitter_seed2;
       v_jitter_alerted := false;
       if v_continuous then
