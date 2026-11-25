@@ -118,14 +118,18 @@ Default value for the record is C_PWM_BFM_CONFIG_DEFAULT.
 |                              |                              |                 | see :ref:`pwm_jitter`. 0 ns disables jitter, <  |
 |                              |                              |                 | 0 ns gives a TB_ERROR. Generation only.         |
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
-| jitter_seed1                 | positive                     | C_RAND_INIT_SE\ | Seed of the jitter randomization. Every         |
-|                              |                              | ED_1            | pwm_generate() call and every VVC run starts    |
-|                              |                              |                 | from the seeds, so a run is reproducible. The   |
-|                              |                              |                 | VVC shifts it by GC_INSTANCE_IDX, see           |
-|                              |                              |                 | :ref:`pwm_jitter`.                              |
+| jitter_seed1                 | positive                     | C_RAND_INIT_SE\ | Seed of the jitter randomization, 1 to          |
+|                              |                              | ED_1            | 2147483562 (range of ieee.math_real.uniform).   |
+|                              |                              |                 | Every pwm_generate() call and every VVC run     |
+|                              |                              |                 | starts from the seeds, so a run is              |
+|                              |                              |                 | reproducible. The VVC shifts it by              |
+|                              |                              |                 | GC_INSTANCE_IDX, see :ref:`pwm_jitter`.         |
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
-| jitter_seed2                 | positive                     | C_RAND_INIT_SE\ | Second seed of the jitter randomization         |
-|                              |                              | ED_2            |                                                 |
+| jitter_seed2                 | positive                     | C_RAND_INIT_SE\ | Second seed of the jitter randomization, 1 to   |
+|                              |                              | ED_2            | 2147483398 (range of ieee.math_real.uniform).   |
+|                              |                              |                 | Out-of-range seeds are not checked by the BFM;  |
+|                              |                              |                 | uniform() then reports an assertion error and   |
+|                              |                              |                 | the jitter is no longer random.                 |
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
 | period_tolerance             | time                         | 0 ns            | Absolute tolerance on the checked period        |
 |                              |                              |                 | (inclusive). Observation.                       |
@@ -247,9 +251,11 @@ keeps its level; the caller drives the idle level, e.g. with pwm_drive_idle(). T
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | active_time        | in     | time                         | The active time t_on. Must be within 0 ns to period.    |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| variable | seed1              | inout  | positive                     | Jitter seed, updated by the call                        |
+| variable | seed1              | inout  | positive                     | Jitter seed, updated by the call. 1 to 2147483562,      |
+|          |                    |        |                              | see config.jitter_seed1                                 |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| variable | seed2              | inout  | positive                     | Jitter seed, updated by the call                        |
+| variable | seed2              | inout  | positive                     | Jitter seed, updated by the call. 1 to 2147483398,      |
+|          |                    |        |                              | see config.jitter_seed2                                 |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | variable | aborted            | out    | boolean                      | Overload with 'abort' only. True if the period was      |
 |          |                    |        |                              | ended by 'abort'.                                       |
