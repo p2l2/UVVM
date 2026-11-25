@@ -46,22 +46,22 @@ architecture func of pwm_bfm_tb is
   type t_time_array is array (natural range <>) of time;
   constant C_PERIODS : t_time_array := (10 ns, 1 us, 1 ms);
 
-  signal pwm : std_logic := 'U';
+  signal pwm : std_ulogic := 'U';
 
   shared variable shared_edge_log : t_edge_log;
 
   -- Observation tests: the line and the stimulus requests from p_main to p_stimulus
-  signal pwm_obs          : std_logic := '0';
-  signal no_terminate     : std_logic := '0'; -- for the overloads with a terminate signal
-  signal stim_start       : boolean   := false; -- toggled by p_main, starts a new stimulus (also during one)
-  signal stim_busy        : boolean   := false;
+  signal pwm_obs          : std_ulogic := '0';
+  signal no_terminate     : std_ulogic := '0'; -- for the overloads with a terminate signal
+  signal stim_start       : boolean    := false; -- toggled by p_main, starts a new stimulus (also during one)
+  signal stim_busy        : boolean    := false;
   signal stim_segments    : t_segment_array(0 to C_MAX_SEGMENTS - 1);
-  signal stim_count       : natural   := 0;
-  signal stim_final       : std_logic := '0';   -- level after the segments
-  signal stim_use_bfm     : boolean   := false; -- generate with pwm_generate() instead of segments
-  signal stim_period      : time      := 0 ns;
-  signal stim_active_time : time      := 0 ns;
-  signal stim_num_periods : natural   := 0;
+  signal stim_count       : natural    := 0;
+  signal stim_final       : std_ulogic := '0';   -- level after the segments
+  signal stim_use_bfm     : boolean    := false; -- generate with pwm_generate() instead of segments
+  signal stim_period      : time       := 0 ns;
+  signal stim_active_time : time       := 0 ns;
+  signal stim_num_periods : natural    := 0;
   signal stim_config      : t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT;
 
 begin
@@ -108,7 +108,7 @@ begin
     variable v_seed1  : positive;
     variable v_seed2  : positive;
     variable v_start  : time;
-    variable v_level  : std_logic;
+    variable v_level  : std_ulogic;
     variable v_edges_a : t_edge_array(0 to 1999);
     variable v_edges_b : t_edge_array(0 to 1999);
     variable v_first   : time;
@@ -175,7 +175,7 @@ begin
     -- Checks the logged edges against a hard-coded list, relative to v_start
     procedure check_edges_rel(
       constant times  : t_time_array;
-      constant levels : std_logic_vector;
+      constant levels : std_ulogic_vector;
       constant msg    : string) is
       variable v_expected : t_edge_array(times'range);
     begin
@@ -257,7 +257,7 @@ begin
     -- Observation tests: starts p_stimulus with the segments, then 'final_level'. The first segment starts now.
     procedure stimulate(
       constant segments    : t_segment_array;
-      constant final_level : std_logic := '0') is
+      constant final_level : std_ulogic := '0') is
     begin
       stim_use_bfm                            <= false;
       stim_segments(0 to segments'length - 1) <= segments;
@@ -294,7 +294,7 @@ begin
 
     -- Sets pwm_obs to a constant level and waits 10 ns
     procedure set_line(
-      constant level : std_logic) is
+      constant level : std_ulogic) is
     begin
       stimulate(seg(level, 0 ns), level);
       wait for 10 ns;
@@ -320,7 +320,7 @@ begin
     end procedure;
 
     procedure check_constant_result(
-      constant level : std_logic;
+      constant level : std_ulogic;
       constant duty  : real;
       constant msg   : string) is
     begin

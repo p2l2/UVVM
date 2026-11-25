@@ -39,15 +39,17 @@ entity pwm_th is
     GC_PWM_BFM_CONFIG : t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
   );
   port(
-    pwm_inject : in std_logic := 'Z'
+    pwm_inject : in std_ulogic := 'Z'
   );
 end entity pwm_th;
 
 architecture struct of pwm_th is
 
+  -- Resolved type where a line has several drivers: generator and observer (which drives 'Z') on pwm_loop,
+  -- the injection and observer i3 on pwm_inject_line
   signal pwm_loop        : std_logic;
   signal pwm_inject_line : std_logic;
-  signal pwm_loop_b      : std_logic;
+  signal pwm_loop_b      : std_ulogic; -- generator i4 only
 
 begin
 

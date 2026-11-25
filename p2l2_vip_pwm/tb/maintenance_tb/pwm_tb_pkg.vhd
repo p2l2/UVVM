@@ -31,7 +31,7 @@ package pwm_tb_pkg is
 
   type t_edge is record
     time_stamp : time;
-    level      : std_logic; -- the new level
+    level      : std_ulogic; -- the new level
   end record t_edge;
   type t_edge_array is array (natural range <>) of t_edge;
 
@@ -48,18 +48,18 @@ package pwm_tb_pkg is
     procedure clear;
     procedure add(
       constant time_stamp : in time;
-      constant level      : in std_logic);
+      constant level      : in std_ulogic);
     impure function count return natural;
     impure function get(
       constant idx : in natural) return t_edge;
   end protected t_edge_log;
 
   function tb_active_level(
-    constant polarity : in t_pwm_polarity) return std_logic;
+    constant polarity : in t_pwm_polarity) return std_ulogic;
 
   function tb_idle_value(
     constant polarity   : in t_pwm_polarity;
-    constant idle_level : in t_pwm_idle_level) return std_logic;
+    constant idle_level : in t_pwm_idle_level) return std_ulogic;
 
   -- num_periods times the same period
   -- Time in resolution units, as real (time / time is an integer and overflows above 2**31 units)
@@ -75,11 +75,11 @@ package pwm_tb_pkg is
   -- 'initial_level' and returning to 'idle' after the last period (for center alignment, an odd t_off gives the extra unit to the second gap).
   function expected_edges(
     constant start         : in time;
-    constant initial_level : in std_logic;
+    constant initial_level : in std_ulogic;
     constant params        : in t_period_param_array;
     constant alignment     : in t_pwm_alignment;
-    constant active        : in std_logic;
-    constant idle          : in std_logic) return t_edge_array;
+    constant active        : in std_ulogic;
+    constant idle          : in std_ulogic) return t_edge_array;
 
   -- Compares the logged edges with the expected edges: number, time and level of each edge. Reports the first
   -- mismatch only and then logs all logged edges.
@@ -101,7 +101,7 @@ package pwm_tb_pkg is
 
   -- Stimulus of the observation tests: segments of a level held for a duration, driven one after the other
   type t_segment is record
-    level    : std_logic;
+    level    : std_ulogic;
     duration : time;
   end record t_segment;
   type t_segment_array is array (natural range <>) of t_segment;
@@ -110,7 +110,7 @@ package pwm_tb_pkg is
 
   -- One segment
   function seg(
-    constant level    : in std_logic;
+    constant level    : in std_ulogic;
     constant duration : in time) return t_segment_array;
 
   -- num_periods left-aligned periods: 'active' for active_time, then the other level for the rest of the period
@@ -118,7 +118,7 @@ package pwm_tb_pkg is
     constant period      : in time;
     constant active_time : in time;
     constant num_periods : in positive;
-    constant active      : in std_logic := '1') return t_segment_array;
+    constant active      : in std_ulogic := '1') return t_segment_array;
 
 end package pwm_tb_pkg;
 
@@ -135,7 +135,7 @@ package body pwm_tb_pkg is
 
     procedure add(
       constant time_stamp : in time;
-      constant level      : in std_logic) is
+      constant level      : in std_ulogic) is
     begin
       if v_count < C_MAX_EDGES then
         v_edges(v_count) := (time_stamp, level);
@@ -158,7 +158,7 @@ package body pwm_tb_pkg is
   end protected body t_edge_log;
 
   function tb_active_level(
-    constant polarity : in t_pwm_polarity) return std_logic is
+    constant polarity : in t_pwm_polarity) return std_ulogic is
   begin
     if polarity = ACTIVE_HIGH then
       return '1';
@@ -168,8 +168,8 @@ package body pwm_tb_pkg is
 
   function tb_idle_value(
     constant polarity   : in t_pwm_polarity;
-    constant idle_level : in t_pwm_idle_level) return std_logic is
-    constant C_ACTIVE : std_logic := tb_active_level(polarity);
+    constant idle_level : in t_pwm_idle_level) return std_ulogic is
+    constant C_ACTIVE : std_ulogic := tb_active_level(polarity);
   begin
     case idle_level is
       when IDLE_INACTIVE => return not C_ACTIVE;
@@ -197,23 +197,23 @@ package body pwm_tb_pkg is
 
   function expected_edges(
     constant start         : in time;
-    constant initial_level : in std_logic;
+    constant initial_level : in std_ulogic;
     constant params        : in t_period_param_array;
     constant alignment     : in t_pwm_alignment;
-    constant active        : in std_logic;
-    constant idle          : in std_logic) return t_edge_array is
-    constant C_RESOLUTION : time      := std.env.resolution_limit;
-    constant C_INACTIVE   : std_logic := not active;
+    constant active        : in std_ulogic;
+    constant idle          : in std_ulogic) return t_edge_array is
+    constant C_RESOLUTION : time       := std.env.resolution_limit;
+    constant C_INACTIVE   : std_ulogic := not active;
     variable v_edges      : t_edge_array(0 to 3 * params'length);
-    variable v_num        : natural   := 0;
-    variable v_level      : std_logic := initial_level;
-    variable v_time       : time      := start;
+    variable v_num        : natural    := 0;
+    variable v_level      : std_ulogic := initial_level;
+    variable v_time       : time       := start;
     variable v_off_time   : time;
     variable v_first_gap  : time;
 
     -- The line is at 'level' for 'duration' from v_time on
     procedure segment(
-      constant level    : in std_logic;
+      constant level    : in std_ulogic;
       constant duration : in time) is
     begin
       if duration > 0 ns then
@@ -322,7 +322,7 @@ package body pwm_tb_pkg is
   end procedure;
 
   function seg(
-    constant level    : in std_logic;
+    constant level    : in std_ulogic;
     constant duration : in time) return t_segment_array is
     constant C_SEGMENT : t_segment_array(0 to 0) := (0 => (level, duration));
   begin
@@ -333,7 +333,7 @@ package body pwm_tb_pkg is
     constant period      : in time;
     constant active_time : in time;
     constant num_periods : in positive;
-    constant active      : in std_logic := '1') return t_segment_array is
+    constant active      : in std_ulogic := '1') return t_segment_array is
     variable v_segments : t_segment_array(0 to 2 * num_periods - 1);
   begin
     for i in 0 to num_periods - 1 loop

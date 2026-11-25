@@ -89,7 +89,7 @@ Result of :ref:`pwm_measure_bfm`. Default value (also the result after a missing
 | is_constant                  | boolean                      | false           | No active-going edge within the timeout: the    |
 |                              |                              |                 | line held constant_level (0 % or 100 %).        |
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
-| constant_level               | std_logic                    | 'U'             | Line level when is_constant ('0', '1', or 'Z'   |
+| constant_level               | std_ulogic                   | 'U'             | Line level when is_constant ('0', '1', or 'Z'   |
 |                              |                              |                 | with IDLE_HIGH_Z), else 'U'                     |
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
 
@@ -169,6 +169,8 @@ Methods
 * All signals are active high unless config.polarity is ACTIVE_LOW.
 * All parameters in brackets are optional.
 * Invalid parameters raise a TB_ERROR alert. The procedure then returns without using time or changing the line.
+* The signal parameters are of type std_ulogic. A std_logic signal can be passed as well, because std_logic is a
+  subtype of std_ulogic. Use std_logic where the line has several drivers, e.g. a generator and an observer VVC.
 
 .. _pwm_generate_bfm:
 
@@ -203,7 +205,7 @@ last period. The duty cycle is given as active time, as ratio or as counter valu
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | msg                | in     | string                       | A custom message to be appended in the log/alert        |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| signal   | pwm                | inout  | std_logic                    | The PWM line driven by the BFM                          |
+| signal   | pwm                | inout  | std_ulogic                   | The PWM line driven by the BFM                          |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | scope              | in     | string                       | Describes the scope from which the log/alert            |
 |          |                    |        |                              | originates. Default value is C_BFM_SCOPE ("PWM BFM").   |
@@ -262,7 +264,7 @@ keeps its level; the caller drives the idle level, e.g. with pwm_drive_idle(). T
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | msg                | in     | string                       | A custom message to be appended in the log/alert        |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| signal   | pwm                | inout  | std_logic                    | The PWM line driven by the BFM                          |
+| signal   | pwm                | inout  | std_ulogic                   | The PWM line driven by the BFM                          |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | signal   | abort              | in     | boolean                      | Overload with 'abort' only. An event ends the period    |
 |          |                    |        |                              | at once.                                                |
@@ -308,7 +310,7 @@ pwm_drive_period().
 +==========+====================+========+==============================+=========================================================+
 | constant | msg                | in     | string                       | A custom message to be appended in the log/alert        |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| signal   | pwm                | inout  | std_logic                    | The PWM line driven by the BFM                          |
+| signal   | pwm                | inout  | std_ulogic                   | The PWM line driven by the BFM                          |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | scope              | in     | string                       | Describes the scope from which the log/alert            |
 |          |                    |        |                              | originates. Default value is C_BFM_SCOPE ("PWM BFM").   |
@@ -362,9 +364,9 @@ is ignored.
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | msg                | in     | string                       | A custom message to be appended in the log/alert        |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| signal   | pwm                | in     | std_logic                    | The PWM line observed by the BFM                        |
+| signal   | pwm                | in     | std_ulogic                   | The PWM line observed by the BFM                        |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| signal   | terminate          | in     | std_logic                    | Optional (overload). '1' ends the observation at once,  |
+| signal   | terminate          | in     | std_ulogic                   | Optional (overload). '1' ends the observation at once,  |
 |          |                    |        |                              | without an alert (logged with ID_TERMINATE_CMD). Used   |
 |          |                    |        |                              | by the VVC for terminate_current_command().             |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
@@ -444,9 +446,9 @@ For all overloads:
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | msg                | in     | string                       | A custom message to be appended in the log/alert        |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| signal   | pwm                | in     | std_logic                    | The PWM line observed by the BFM                        |
+| signal   | pwm                | in     | std_ulogic                   | The PWM line observed by the BFM                        |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| signal   | terminate          | in     | std_logic                    | Optional (overload). '1' ends the observation at once,  |
+| signal   | terminate          | in     | std_ulogic                   | Optional (overload). '1' ends the observation at once,  |
 |          |                    |        |                              | without an alert (logged with ID_TERMINATE_CMD). Used   |
 |          |                    |        |                              | by the VVC for terminate_current_command().             |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+

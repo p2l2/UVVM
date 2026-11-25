@@ -54,11 +54,11 @@ architecture func of pwm_vvc_tb is
   type t_time_array is array (natural range <>) of time;
 
   -- Error injection: p_stimulus drives pwm_inject with the segments requested by p_main
-  signal pwm_inject    : std_logic := '0';
-  signal stim_start    : boolean   := false; -- toggled by p_main, starts a new stimulus (also during one)
+  signal pwm_inject    : std_ulogic := '0';
+  signal stim_start    : boolean    := false; -- toggled by p_main, starts a new stimulus (also during one)
   signal stim_segments : t_segment_array(0 to C_MAX_SEGMENTS - 1);
-  signal stim_count    : natural   := 0;
-  signal stim_final    : std_logic := '0';   -- level after the segments
+  signal stim_count    : natural    := 0;
+  signal stim_final    : std_ulogic := '0';   -- level after the segments
 
 begin
 
@@ -98,7 +98,7 @@ begin
     variable v_config   : t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT;
     variable v_config_b : t_pwm_bfm_config; -- for C_GEN_B
     variable v_start    : time;
-    variable v_level    : std_logic;
+    variable v_level    : std_ulogic;
     variable v_edge     : t_edge;
     variable v_edges_a  : t_edge_array(0 to 199);
     variable v_edges_b  : t_edge_array(0 to 199);
@@ -165,7 +165,7 @@ begin
     -- The logged edges against a hard-coded list, relative to v_start
     procedure check_edges_rel(
       constant times  : t_time_array;
-      constant levels : std_logic_vector;
+      constant levels : std_ulogic_vector;
       constant msg    : string) is
       variable v_expected : t_edge_array(times'range);
     begin
@@ -294,7 +294,7 @@ begin
     -- Starts p_stimulus with the segments, then 'final_level'. The first segment starts now.
     procedure stimulate(
       constant segments    : t_segment_array;
-      constant final_level : std_logic := '0') is
+      constant final_level : std_ulogic := '0') is
     begin
       stim_segments(0 to segments'length - 1) <= segments;
       stim_count                              <= segments'length;
@@ -336,7 +336,7 @@ begin
     end procedure;
 
     procedure check_constant_result(
-      constant level : std_logic;
+      constant level : std_ulogic;
       constant duty  : real;
       constant msg   : string) is
     begin

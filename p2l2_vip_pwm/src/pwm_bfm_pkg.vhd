@@ -81,17 +81,17 @@ package pwm_bfm_pkg is
   -- Result of pwm_measure()
   -- The mean values are rounded to the nearest resolution unit; the minimum and maximum values are exact.
   type t_pwm_measurement is record
-    period          : time;      -- Mean of active-going edge to active-going edge, 0 ns when is_constant
-    active_time     : time;      -- Mean of active-going edge to inactive-going edge, 0 ns when is_constant
-    duty_cycle      : real;      -- Sum of the active times / sum of the periods; 0.0 or 1.0 when is_constant
-    min_period      : time;      -- Shortest period, 0 ns when is_constant
-    max_period      : time;      -- Longest period, 0 ns when is_constant
-    min_active_time : time;      -- Shortest active time, 0 ns when is_constant
-    max_active_time : time;      -- Longest active time, 0 ns when is_constant
-    min_duty_cycle  : real;      -- Smallest duty cycle of a single period; as duty_cycle when is_constant
-    max_duty_cycle  : real;      -- Largest duty cycle of a single period; as duty_cycle when is_constant
-    is_constant     : boolean;   -- No active-going edge within the timeout: the line held constant_level
-    constant_level  : std_logic; -- Line level when is_constant, else 'U'
+    period          : time;       -- Mean of active-going edge to active-going edge, 0 ns when is_constant
+    active_time     : time;       -- Mean of active-going edge to inactive-going edge, 0 ns when is_constant
+    duty_cycle      : real;       -- Sum of the active times / sum of the periods; 0.0 or 1.0 when is_constant
+    min_period      : time;       -- Shortest period, 0 ns when is_constant
+    max_period      : time;       -- Longest period, 0 ns when is_constant
+    min_active_time : time;       -- Shortest active time, 0 ns when is_constant
+    max_active_time : time;       -- Longest active time, 0 ns when is_constant
+    min_duty_cycle  : real;       -- Smallest duty cycle of a single period; as duty_cycle when is_constant
+    max_duty_cycle  : real;       -- Largest duty cycle of a single period; as duty_cycle when is_constant
+    is_constant     : boolean;    -- No active-going edge within the timeout: the line held constant_level
+    constant_level  : std_ulogic; -- Line level when is_constant, else 'U'
   end record t_pwm_measurement;
 
   -- Also the result after a missing-activity alert
@@ -137,7 +137,7 @@ package pwm_bfm_pkg is
   -- Drives the idle level given by config.idle_level and config.polarity.
   procedure pwm_drive_idle(
     constant msg          : in string;
-    signal   pwm          : inout std_logic;
+    signal   pwm          : inout std_ulogic;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
@@ -159,7 +159,7 @@ package pwm_bfm_pkg is
     variable seed1        : inout positive;
     variable seed2        : inout positive;
     constant msg          : in string;
-    signal   pwm          : inout std_logic;
+    signal   pwm          : inout std_ulogic;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
@@ -174,7 +174,7 @@ package pwm_bfm_pkg is
     variable seed2        : inout positive;
     variable aborted      : out boolean;
     constant msg          : in string;
-    signal   pwm          : inout std_logic;
+    signal   pwm          : inout std_ulogic;
     signal   abort        : in boolean;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
@@ -191,7 +191,7 @@ package pwm_bfm_pkg is
     constant active_time  : in time;
     constant num_periods  : in integer;
     constant msg          : in string;
-    signal   pwm          : inout std_logic;
+    signal   pwm          : inout std_ulogic;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
@@ -203,7 +203,7 @@ package pwm_bfm_pkg is
     constant duty         : in real;
     constant num_periods  : in integer;
     constant msg          : in string;
-    signal   pwm          : inout std_logic;
+    signal   pwm          : inout std_ulogic;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
@@ -216,7 +216,7 @@ package pwm_bfm_pkg is
     constant resolution   : in integer;
     constant num_periods  : in integer;
     constant msg          : in string;
-    signal   pwm          : inout std_logic;
+    signal   pwm          : inout std_ulogic;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
@@ -247,7 +247,7 @@ package pwm_bfm_pkg is
   procedure pwm_measure(
     variable result       : out t_pwm_measurement;
     constant msg          : in string;
-    signal   pwm          : in std_logic;
+    signal   pwm          : in std_ulogic;
     constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
     constant scope        : in string           := C_BFM_SCOPE;
@@ -267,7 +267,7 @@ package pwm_bfm_pkg is
     constant period       : in time;
     constant active_time  : in time;
     constant msg          : in string;
-    signal   pwm          : in std_logic;
+    signal   pwm          : in std_ulogic;
     constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
     constant alert_level  : in t_alert_level    := ERROR;
@@ -282,7 +282,7 @@ package pwm_bfm_pkg is
   procedure pwm_check(
     constant duty         : in real;
     constant msg          : in string;
-    signal   pwm          : in std_logic;
+    signal   pwm          : in std_ulogic;
     constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
     constant alert_level  : in t_alert_level    := ERROR;
@@ -298,7 +298,7 @@ package pwm_bfm_pkg is
     constant count        : in integer;
     constant resolution   : in integer;
     constant msg          : in string;
-    signal   pwm          : in std_logic;
+    signal   pwm          : in std_ulogic;
     constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
     constant alert_level  : in t_alert_level    := ERROR;
@@ -313,8 +313,8 @@ package pwm_bfm_pkg is
   procedure pwm_measure(
     variable result       : out t_pwm_measurement;
     constant msg          : in string;
-    signal   pwm          : in std_logic;
-    signal   terminate    : in std_logic;
+    signal   pwm          : in std_ulogic;
+    signal   terminate    : in std_ulogic;
     constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
     constant scope        : in string           := C_BFM_SCOPE;
@@ -326,8 +326,8 @@ package pwm_bfm_pkg is
     constant period       : in time;
     constant active_time  : in time;
     constant msg          : in string;
-    signal   pwm          : in std_logic;
-    signal   terminate    : in std_logic;
+    signal   pwm          : in std_ulogic;
+    signal   terminate    : in std_ulogic;
     constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
     constant alert_level  : in t_alert_level    := ERROR;
@@ -339,8 +339,8 @@ package pwm_bfm_pkg is
   procedure pwm_check(
     constant duty         : in real;
     constant msg          : in string;
-    signal   pwm          : in std_logic;
-    signal   terminate    : in std_logic;
+    signal   pwm          : in std_ulogic;
+    signal   terminate    : in std_ulogic;
     constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
     constant alert_level  : in t_alert_level    := ERROR;
@@ -354,8 +354,8 @@ package pwm_bfm_pkg is
     constant count        : in integer;
     constant resolution   : in integer;
     constant msg          : in string;
-    signal   pwm          : in std_logic;
-    signal   terminate    : in std_logic;
+    signal   pwm          : in std_ulogic;
+    signal   terminate    : in std_ulogic;
     constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
     constant alert_level  : in t_alert_level    := ERROR;
@@ -411,7 +411,7 @@ package body pwm_bfm_pkg is
   ---------------------------------------------------------------------------------
   function active_level(
     constant config : in t_pwm_bfm_config
-  ) return std_logic is
+  ) return std_ulogic is
   begin
     if config.polarity = ACTIVE_HIGH then
       return '1';
@@ -422,7 +422,7 @@ package body pwm_bfm_pkg is
 
   function inactive_level(
     constant config : in t_pwm_bfm_config
-  ) return std_logic is
+  ) return std_ulogic is
   begin
     if config.polarity = ACTIVE_HIGH then
       return '0';
@@ -434,7 +434,7 @@ package body pwm_bfm_pkg is
   -- The value driven on the line when idle
   function idle_value(
     constant config : in t_pwm_bfm_config
-  ) return std_logic is
+  ) return std_ulogic is
   begin
     case config.idle_level is
       when IDLE_INACTIVE => return inactive_level(config);
@@ -509,20 +509,20 @@ package body pwm_bfm_pkg is
     variable seed1       : inout positive;
     variable seed2       : inout positive;
     variable times       : out t_period_times;
-    variable levels      : out std_logic_vector(0 to 2);
+    variable levels      : out std_ulogic_vector(0 to 2);
     variable last        : out natural
   ) is
-    constant C_RESOLUTION : time      := std.env.resolution_limit;
-    constant C_ACTIVE     : std_logic := active_level(config);
-    constant C_INACTIVE   : std_logic := inactive_level(config);
-    constant C_OFF_TIME   : time      := period - active_time;
+    constant C_RESOLUTION : time       := std.env.resolution_limit;
+    constant C_ACTIVE     : std_ulogic := active_level(config);
+    constant C_INACTIVE   : std_ulogic := inactive_level(config);
+    constant C_OFF_TIME   : time       := period - active_time;
     variable v_ideal      : t_period_times;
-    variable v_level      : std_logic_vector(0 to 2);
+    variable v_level      : std_ulogic_vector(0 to 2);
     variable v_last       : natural;
     variable v_first_gap  : time;
     variable v_offset     : time;
     variable v_time       : time;
-    variable v_prev       : time := 0 ns;
+    variable v_prev       : time       := 0 ns;
   begin
     if active_time = 0 ns then
       times(0)  := 0 ns;
@@ -578,13 +578,13 @@ package body pwm_bfm_pkg is
   procedure drive_period_core(
     constant period      : in time;
     constant active_time : in time;
-    signal   pwm         : inout std_logic;
+    signal   pwm         : inout std_ulogic;
     constant config      : in t_pwm_bfm_config;
     variable seed1       : inout positive;
     variable seed2       : inout positive
   ) is
     variable v_times  : t_period_times;
-    variable v_levels : std_logic_vector(0 to 2);
+    variable v_levels : std_ulogic_vector(0 to 2);
     variable v_last   : natural;
     variable v_now    : time := 0 ns;
   begin
@@ -602,7 +602,7 @@ package body pwm_bfm_pkg is
   procedure drive_period_core(
     constant period      : in time;
     constant active_time : in time;
-    signal   pwm         : inout std_logic;
+    signal   pwm         : inout std_ulogic;
     constant config      : in t_pwm_bfm_config;
     variable seed1       : inout positive;
     variable seed2       : inout positive;
@@ -610,7 +610,7 @@ package body pwm_bfm_pkg is
     variable aborted     : out boolean
   ) is
     variable v_times  : t_period_times;
-    variable v_levels : std_logic_vector(0 to 2);
+    variable v_levels : std_ulogic_vector(0 to 2);
     variable v_last   : natural;
     variable v_now    : time := 0 ns;
   begin
@@ -640,7 +640,7 @@ package body pwm_bfm_pkg is
     constant active_time  : in time;
     constant num_periods  : in integer;
     constant msg          : in string;
-    signal   pwm          : inout std_logic;
+    signal   pwm          : inout std_ulogic;
     constant scope        : in string;
     constant msg_id_panel : in t_msg_id_panel;
     constant config       : in t_pwm_bfm_config
@@ -708,7 +708,7 @@ package body pwm_bfm_pkg is
   end function;
 
   function is_valid_level(
-    constant value : in std_logic
+    constant value : in std_ulogic
   ) return boolean is
   begin
     return value = '0' or value = '1';
@@ -761,16 +761,16 @@ package body pwm_bfm_pkg is
   -- 'level' is the last valid level ('U' = none yet) and is updated. A change to any other value raises an alert at
   -- alert_level, except 'Z' when allow_z is true. timed_out is true if no edge came before the deadline.
   procedure await_edge(
-    signal   pwm           : in std_logic;
+    signal   pwm           : in std_ulogic;
     constant deadline      : in time;
     constant allow_z       : in boolean;
     constant alert_level   : in t_alert_level;
     constant proc_call     : in string;
     constant msg           : in string;
     constant scope         : in string;
-    signal   terminate     : in std_logic;
+    signal   terminate     : in std_ulogic;
     constant use_terminate : in boolean;
-    variable level         : inout std_logic;
+    variable level         : inout std_ulogic;
     variable timed_out     : out boolean;
     variable terminated    : out boolean
   ) is
@@ -806,19 +806,19 @@ package body pwm_bfm_pkg is
   -- Waits for the next active-going edge; a period in progress is ignored.
   -- timed_out is true if no active-going edge came before the deadline.
   procedure await_period_start(
-    signal   pwm           : in std_logic;
+    signal   pwm           : in std_ulogic;
     constant deadline      : in time;
     constant alert_level   : in t_alert_level;
     constant proc_call     : in string;
     constant msg           : in string;
     constant scope         : in string;
     constant config        : in t_pwm_bfm_config;
-    signal   terminate     : in std_logic;
+    signal   terminate     : in std_ulogic;
     constant use_terminate : in boolean;
     variable timed_out     : out boolean;
     variable terminated    : out boolean
   ) is
-    variable v_level      : std_logic := 'U';
+    variable v_level      : std_ulogic := 'U';
     variable v_timed_out  : boolean;
     variable v_terminated : boolean;
   begin
@@ -861,22 +861,22 @@ package body pwm_bfm_pkg is
   -- next active-going edge before the deadline. timed_out = true if the period is not complete at the deadline; the
   -- caller raises the missing-activity alert.
   procedure measure_period(
-    signal   pwm           : in std_logic;
+    signal   pwm           : in std_ulogic;
     constant deadline      : in time;
     constant alert_level   : in t_alert_level;
     constant proc_call     : in string;
     constant msg           : in string;
     constant scope         : in string;
     constant config        : in t_pwm_bfm_config;
-    signal   terminate     : in std_logic;
+    signal   terminate     : in std_ulogic;
     constant use_terminate : in boolean;
     variable period        : out time;
     variable active_time   : out time;
     variable timed_out     : out boolean;
     variable terminated    : out boolean
   ) is
-    constant C_START      : time := now;
-    variable v_level      : std_logic := active_level(config);
+    constant C_START      : time       := now;
+    variable v_level      : std_ulogic := active_level(config);
     variable v_inactive   : time;
     variable v_timed_out  : boolean;
     variable v_terminated : boolean;
@@ -911,7 +911,7 @@ package body pwm_bfm_pkg is
     constant timeout      : in time;
     constant proc_call    : in string;
     constant msg          : in string;
-    signal   pwm          : in std_logic;
+    signal   pwm          : in std_ulogic;
     constant scope        : in string;
     constant config       : in t_pwm_bfm_config
   ) is
@@ -924,16 +924,16 @@ package body pwm_bfm_pkg is
   -- Checks that the line holds 'expected' (0 % or 100 %) without any change for 'window'. Raises at most one alert and
   -- returns at the first violation.
   procedure check_constant_level(
-    constant expected      : in std_logic;
+    constant expected      : in std_ulogic;
     constant window        : in time;
     constant alert_level   : in t_alert_level;
     constant proc_call     : in string;
     constant msg           : in string;
-    signal   pwm           : in std_logic;
+    signal   pwm           : in std_ulogic;
     constant scope         : in string;
     constant msg_id_panel  : in t_msg_id_panel;
     constant config        : in t_pwm_bfm_config;
-    signal   terminate     : in std_logic;
+    signal   terminate     : in std_ulogic;
     constant use_terminate : in boolean;
     variable terminated    : out boolean
   ) is
@@ -983,11 +983,11 @@ package body pwm_bfm_pkg is
     constant alert_level   : in t_alert_level;
     constant proc_call     : in string;
     constant msg           : in string;
-    signal   pwm           : in std_logic;
+    signal   pwm           : in std_ulogic;
     constant scope         : in string;
     constant msg_id_panel  : in t_msg_id_panel;
     constant config        : in t_pwm_bfm_config;
-    signal   terminate     : in std_logic;
+    signal   terminate     : in std_ulogic;
     constant use_terminate : in boolean;
     variable terminated    : out boolean
   ) is
@@ -1084,13 +1084,13 @@ package body pwm_bfm_pkg is
   --==========================================================================================
   procedure pwm_drive_idle(
     constant msg          : in string;
-    signal   pwm          : inout std_logic;
+    signal   pwm          : inout std_ulogic;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
   ) is
-    constant C_PROC_NAME : string    := "pwm_drive_idle()";
-    constant C_VALUE     : std_logic := idle_value(config);
+    constant C_PROC_NAME : string     := "pwm_drive_idle()";
+    constant C_VALUE     : std_ulogic := idle_value(config);
   begin
     pwm <= C_VALUE;
     log(config.id_for_bfm, C_PROC_NAME & "=> line at '" & to_string(C_VALUE) & "' (" & to_upper(to_string(config.idle_level)) & ")." &
@@ -1103,7 +1103,7 @@ package body pwm_bfm_pkg is
     variable seed1        : inout positive;
     variable seed2        : inout positive;
     constant msg          : in string;
-    signal   pwm          : inout std_logic;
+    signal   pwm          : inout std_ulogic;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
@@ -1126,7 +1126,7 @@ package body pwm_bfm_pkg is
     variable seed2        : inout positive;
     variable aborted      : out boolean;
     constant msg          : in string;
-    signal   pwm          : inout std_logic;
+    signal   pwm          : inout std_ulogic;
     signal   abort        : in boolean;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
@@ -1155,7 +1155,7 @@ package body pwm_bfm_pkg is
     constant active_time  : in time;
     constant num_periods  : in integer;
     constant msg          : in string;
-    signal   pwm          : inout std_logic;
+    signal   pwm          : inout std_ulogic;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
@@ -1171,7 +1171,7 @@ package body pwm_bfm_pkg is
     constant duty         : in real;
     constant num_periods  : in integer;
     constant msg          : in string;
-    signal   pwm          : inout std_logic;
+    signal   pwm          : inout std_ulogic;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
@@ -1193,7 +1193,7 @@ package body pwm_bfm_pkg is
     constant resolution   : in integer;
     constant num_periods  : in integer;
     constant msg          : in string;
-    signal   pwm          : inout std_logic;
+    signal   pwm          : inout std_ulogic;
     constant scope        : in string           := C_BFM_SCOPE;
     constant msg_id_panel : in t_msg_id_panel   := shared_msg_id_panel;
     constant config       : in t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT
@@ -1226,8 +1226,8 @@ package body pwm_bfm_pkg is
   procedure measure_impl(
     variable result        : out t_pwm_measurement;
     constant msg           : in string;
-    signal   pwm           : in std_logic;
-    signal   terminate     : in std_logic;
+    signal   pwm           : in std_ulogic;
+    signal   terminate     : in std_ulogic;
     constant use_terminate : in boolean;
     constant num_periods   : in integer;
     constant timeout       : in time;
@@ -1335,8 +1335,8 @@ package body pwm_bfm_pkg is
     constant active_time   : in time;
     constant num_periods   : in integer;
     constant msg           : in string;
-    signal   pwm           : in std_logic;
-    signal   terminate     : in std_logic;
+    signal   pwm           : in std_ulogic;
+    signal   terminate     : in std_ulogic;
     constant use_terminate : in boolean;
     constant alert_level   : in t_alert_level;
     constant timeout       : in time;
@@ -1390,8 +1390,8 @@ package body pwm_bfm_pkg is
     constant duty          : in real;
     constant num_periods   : in integer;
     constant msg           : in string;
-    signal   pwm           : in std_logic;
-    signal   terminate     : in std_logic;
+    signal   pwm           : in std_ulogic;
+    signal   terminate     : in std_ulogic;
     constant use_terminate : in boolean;
     constant alert_level   : in t_alert_level;
     constant timeout       : in time;
@@ -1439,7 +1439,7 @@ package body pwm_bfm_pkg is
   procedure pwm_measure(
     variable result       : out t_pwm_measurement;
     constant msg          : in string;
-    signal   pwm          : in std_logic;
+    signal   pwm          : in std_ulogic;
     constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
     constant scope        : in string           := C_BFM_SCOPE;
@@ -1454,7 +1454,7 @@ package body pwm_bfm_pkg is
     constant period       : in time;
     constant active_time  : in time;
     constant msg          : in string;
-    signal   pwm          : in std_logic;
+    signal   pwm          : in std_ulogic;
     constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
     constant alert_level  : in t_alert_level    := ERROR;
@@ -1470,7 +1470,7 @@ package body pwm_bfm_pkg is
   procedure pwm_check(
     constant duty         : in real;
     constant msg          : in string;
-    signal   pwm          : in std_logic;
+    signal   pwm          : in std_ulogic;
     constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
     constant alert_level  : in t_alert_level    := ERROR;
@@ -1487,7 +1487,7 @@ package body pwm_bfm_pkg is
     constant count        : in integer;
     constant resolution   : in integer;
     constant msg          : in string;
-    signal   pwm          : in std_logic;
+    signal   pwm          : in std_ulogic;
     constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
     constant alert_level  : in t_alert_level    := ERROR;
@@ -1510,8 +1510,8 @@ package body pwm_bfm_pkg is
   procedure pwm_measure(
     variable result       : out t_pwm_measurement;
     constant msg          : in string;
-    signal   pwm          : in std_logic;
-    signal   terminate    : in std_logic;
+    signal   pwm          : in std_ulogic;
+    signal   terminate    : in std_ulogic;
     constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
     constant scope        : in string           := C_BFM_SCOPE;
@@ -1526,8 +1526,8 @@ package body pwm_bfm_pkg is
     constant period       : in time;
     constant active_time  : in time;
     constant msg          : in string;
-    signal   pwm          : in std_logic;
-    signal   terminate    : in std_logic;
+    signal   pwm          : in std_ulogic;
+    signal   terminate    : in std_ulogic;
     constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
     constant alert_level  : in t_alert_level    := ERROR;
@@ -1543,8 +1543,8 @@ package body pwm_bfm_pkg is
   procedure pwm_check(
     constant duty         : in real;
     constant msg          : in string;
-    signal   pwm          : in std_logic;
-    signal   terminate    : in std_logic;
+    signal   pwm          : in std_ulogic;
+    signal   terminate    : in std_ulogic;
     constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
     constant alert_level  : in t_alert_level    := ERROR;
@@ -1561,8 +1561,8 @@ package body pwm_bfm_pkg is
     constant count        : in integer;
     constant resolution   : in integer;
     constant msg          : in string;
-    signal   pwm          : in std_logic;
-    signal   terminate    : in std_logic;
+    signal   pwm          : in std_ulogic;
+    signal   terminate    : in std_ulogic;
     constant num_periods  : in integer          := 1;
     constant timeout      : in time             := C_UNDEFINED_TIME;
     constant alert_level  : in t_alert_level    := ERROR;
