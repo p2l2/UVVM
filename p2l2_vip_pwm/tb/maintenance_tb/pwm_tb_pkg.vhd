@@ -90,7 +90,7 @@ package pwm_tb_pkg is
     constant scope    : in string := C_TB_SCOPE_DEFAULT);
 
   -- For jittered waveforms: the logged edges must have the number and levels of the ideal edges 'expected', each edge
-  -- within +-jitter of its ideal time, and consecutive edges at least one resolution unit apart. Reports the first
+  -- 0 ns to jitter after its ideal time, and consecutive edges at least one resolution unit apart. Reports the first
   -- failure of each kind and logs the smallest and largest offset found.
   procedure check_jittered_edges(
     variable edge_log : inout t_edge_log;
@@ -306,7 +306,7 @@ package body pwm_tb_pkg is
                                   "level of edge " & to_string(i) & ": " & msg, scope, ID_NEVER);
       end if;
       if v_time_ok then
-        v_time_ok := check_value_in_range(v_offset, -jitter, jitter, ERROR,
+        v_time_ok := check_value_in_range(v_offset, 0 ns, jitter, ERROR,
                                           "offset of edge " & to_string(i) & " from its ideal time: " & msg, scope, ID_NEVER);
       end if;
       if v_space_ok and i > 0 then
@@ -318,7 +318,7 @@ package body pwm_tb_pkg is
       v_prev := v_edge;
     end loop;
     log(ID_SEQUENCER_SUB, "Edge offsets from the ideal times: " & to_string(v_min_offset) & " to " & to_string(v_max_offset) &
-                          ", allowed +-" & to_string(jitter) & ". '" & msg & "'", scope);
+                          ", allowed 0 ns to " & to_string(jitter) & ". '" & msg & "'", scope);
   end procedure;
 
   function seg(

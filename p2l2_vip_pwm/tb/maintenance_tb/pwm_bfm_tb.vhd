@@ -114,6 +114,7 @@ begin
     variable v_first   : time;
     variable v_last    : time;
     variable v_differs : boolean;
+    variable v_sum     : time;
 
     -- Lets the last assignment to 'pwm' take effect and p_edge_logger record it
     procedure settle is
@@ -248,6 +249,24 @@ begin
         v_edge := shared_edge_log.get(i);
         edges(edges'low + i) := (v_edge.time_stamp - v_start, v_edge.level);
       end loop;
+    end procedure;
+
+    -- Jitter must not bias the waveform: the mean of the logged pulses (active-going edge 2i to edge 2i+1) is within
+    -- active_time +- config.jitter/10 (plus one resolution unit). The bound is several standard deviations of the mean
+    -- for the number of periods used here, and well below the j/4 of a one-sided clamp at the period start.
+    procedure check_mean_active_time(
+      constant active_time : time;
+      constant num_periods : positive;
+      constant msg         : string) is
+      variable v_sum : time := 0 ns;
+    begin
+      for i in 0 to num_periods - 1 loop
+        v_sum := v_sum + shared_edge_log.get(2 * i + 1).time_stamp - shared_edge_log.get(2 * i).time_stamp;
+      end loop;
+      log(ID_SEQUENCER, "Mean active time over " & to_string(num_periods) & " periods: " & to_string(v_sum / num_periods) &
+                        ". '" & msg & "'", C_SCOPE);
+      check_value_in_range(v_sum / num_periods, active_time - v_config.jitter / 10 - C_RESOLUTION,
+                           active_time + v_config.jitter / 10 + C_RESOLUTION, ERROR, "mean active time: " & msg, C_SCOPE);
     end procedure;
 
     constant C_DUTY_SEQUENCE : t_period_param_array := ((10 ns, 5 ns), (10 ns, 0 ns), (10 ns, 5 ns), (10 ns, 10 ns), (10 ns, 5 ns));
@@ -654,14 +673,15 @@ begin
       log(ID_LOG_HDR, "J = 5 ns, T = 100 ns, t_on = 50 ns, 1000 periods", C_SCOPE);
       v_config.jitter := 5 ns;
       test_jitter(100 ns, 50 ns, 1000, "j 5 ns");
+      check_mean_active_time(50 ns, 1000, "j 5 ns");
       save_edges(v_edges_a);
-      -- No drift: the mean period between the first and the last active-going edge. Each edge is within +-j of its ideal
-      -- time, so the mean of 999 periods can differ from T by at most 2j/999 (plus rounding).
+      -- No drift: the mean period between the first and the last active-going edge. Each edge is within [0, j] of its
+      -- ideal time, so the mean of 999 periods can differ from T by at most j/999 (plus rounding).
       v_first := v_edges_a(0).time_stamp;
       v_last  := v_edges_a(1998).time_stamp;
       log(ID_SEQUENCER, "Mean period over 999 periods: " & to_string((v_last - v_first) / 999), C_SCOPE);
-      check_value_in_range((v_last - v_first) / 999, 100 ns - (2 * 5 ns) / 999 - C_RESOLUTION,
-                           100 ns + (2 * 5 ns) / 999 + C_RESOLUTION, ERROR, "mean period (no drift)", C_SCOPE);
+      check_value_in_range((v_last - v_first) / 999, 100 ns - 5 ns / 999 - C_RESOLUTION,
+                           100 ns + 5 ns / 999 + C_RESOLUTION, ERROR, "mean period (no drift)", C_SCOPE);
       -- The jitter is random: at least two different offsets
       v_differs := false;
       for i in 1 to 1999 loop
@@ -695,20 +715,24 @@ begin
       for alignment in RIGHT_ALIGNED to CENTER_ALIGNED loop
         v_config.alignment := alignment;
         test_jitter(100 ns, 30 ns, 500, "j 5 ns, " & to_string(alignment));
+        check_mean_active_time(30 ns, 500, "j 5 ns, " & to_string(alignment));
       end loop;
 
       -- Center-aligned periods start without an edge (the line is already inactive). That period start is not jittered,
-      -- so it does not delay the active-going edge: with a first gap of 2 ns and j = 5 ns, the active-going edge is
-      -- clamped to the period start in some periods (it was always at least one resolution unit later before).
-      log(ID_LOG_HDR, "Center-aligned, first gap 2 ns < j: the active-going edge can reach the period start", C_SCOPE);
-      test_jitter(100 ns, 96 ns, 200, "j 5 ns, center-aligned, first gap 2 ns");
+      -- so it does not delay the active-going edge. With a first gap of 1 unit, the active-going edge keeps its own offset
+      -- distribution, uniform in [0, j] with mean j/2. A jittered period start would push it to the later of two offsets
+      -- (mean 2j/3), which the bound j/2 +- j/10 rejects.
+      log(ID_LOG_HDR, "Center-aligned, first gap 1 unit: the period start does not delay the active-going edge", C_SCOPE);
+      test_jitter(100 ns, 100 ns - 2 * C_RESOLUTION, 500, "j 5 ns, center-aligned, first gap 1 unit");
       save_edges(v_edges_a);
-      v_differs := false;
-      for i in 0 to 199 loop
-        -- Edge 2i is the active-going edge of period i
-        v_differs := v_differs or v_edges_a(2 * i).time_stamp = i * 100 ns;
+      v_sum := 0 ns;
+      for i in 0 to 499 loop
+        -- Edge 2i is the active-going edge of period i, ideally at i * T + 1 unit
+        v_sum := v_sum + v_edges_a(2 * i).time_stamp - (i * 100 ns + C_RESOLUTION);
       end loop;
-      check_value(v_differs, ERROR, "an active-going edge at a period start", C_SCOPE);
+      log(ID_SEQUENCER, "Mean offset of the active-going edges: " & to_string(v_sum / 500), C_SCOPE);
+      check_value_in_range(v_sum / 500, 5 ns / 2 - 5 ns / 10, 5 ns / 2 + 5 ns / 10, ERROR,
+                           "mean offset of the active-going edges", C_SCOPE);
       v_config.polarity := ACTIVE_LOW;
       pwm_drive_idle("", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       test_jitter(100 ns, 30 ns, 500, "j 5 ns, center-aligned, active-low");

@@ -43,7 +43,7 @@ package pwm_bfm_pkg is
     polarity                : t_pwm_polarity;    -- Active level of the line (both roles)
     alignment               : t_pwm_alignment;   -- Position of the pulse within the period (generator)
     idle_level              : t_pwm_idle_level;  -- Line level when no waveform is generated (generator)
-    jitter                  : time;              -- Max. random offset of each generated edge, 0 ns = off (generator)
+    jitter                  : time;              -- Max. random delay of each generated edge, 0 ns = off (generator)
     jitter_seed1            : positive;          -- Seeds of the jitter randomization (generator)
     jitter_seed2            : positive;
     period_tolerance        : time;              -- Absolute tolerance on the checked period (observer)
@@ -55,7 +55,6 @@ package pwm_bfm_pkg is
     timeout_severity        : t_alert_level;     -- Alert level of missing activity at the timeout (observer)
     constant_level_severity : t_alert_level;     -- Alert level when pwm_measure() sees a constant level (observer)
     id_for_bfm              : t_msg_id;          -- The message ID used as a general message ID in the PWM BFM
-    id_for_bfm_wait         : t_msg_id;          -- The message ID used for logging waits in the PWM BFM
   end record t_pwm_bfm_config;
 
   -- Define the default value for the BFM config
@@ -74,8 +73,7 @@ package pwm_bfm_pkg is
     timeout                 => C_UNDEFINED_TIME,
     timeout_severity        => ERROR,
     constant_level_severity => NO_ALERT,
-    id_for_bfm              => ID_BFM,
-    id_for_bfm_wait         => ID_BFM_WAIT
+    id_for_bfm              => ID_BFM
   );
 
   -- Result of pwm_measure()
@@ -158,9 +156,8 @@ package pwm_bfm_pkg is
   -- The line is not returned to idle, so consecutive calls give a continuous waveform. 0 ns and period as active_time
   -- give a constant level without edges. Invalid parameters (period <= 0 ns, active_time outside 0 ns to period,
   -- config.jitter < 0 ns) raise a TB_ERROR and return at once.
-  -- With config.jitter > 0 ns, every edge is moved by a random offset in [-jitter, +jitter] from its ideal time, drawn
-  -- with seed1/seed2, which are updated. An edge at the period start is not moved before the period start, and every
-  -- pulse and gap stays at least one resolution unit long.
+  -- With config.jitter > 0 ns, every edge is delayed by a random offset in [0, jitter] from its ideal time, drawn with
+  -- seed1/seed2, which are updated. Every pulse and gap stays at least one resolution unit long.
   procedure pwm_drive_period(
     constant period       : in time;
     constant active_time  : in time;
@@ -567,9 +564,11 @@ package body pwm_bfm_pkg is
       -- No edge at the period start if the line is already at its level (e.g. center-aligned after center-aligned):
       -- not jittered, and it does not delay the next edge
       if config.jitter > 0 ns and not (i = 0 and to_x01(line_level) = v_level(0)) then
-        -- Offset relative to the ideal time, so the jitter does not accumulate. Clamped so that the edges keep their
-        -- order, every pulse and gap is at least one resolution unit and every edge stays within its period.
-        random(-config.jitter, config.jitter, C_RESOLUTION, seed1, seed2, v_offset, "pwm_drive_period");
+        -- Delay relative to the ideal time, so the jitter does not accumulate. Every edge gets the same distribution,
+        -- so the mean period and the mean active time stay exact, and no edge moves before the start of its period.
+        -- Clamped so that the edges keep their order, every pulse and gap is at least one resolution unit and every
+        -- edge stays within its period; a clamped edge is still within [0, jitter] of its ideal time.
+        random(0 ns, config.jitter, C_RESOLUTION, seed1, seed2, v_offset, "pwm_drive_period");
         v_time     := maximum(v_time + v_offset, v_earliest);
         v_time     := minimum(v_time, period - (v_last + 1 - i) * C_RESOLUTION);
         v_earliest := v_time + C_RESOLUTION;
