@@ -3,7 +3,7 @@
 -----------------------------------------------------------
 
 - p2l2_vip_pwm      : A VIP that uses UVVM
-  - doc             : Specification, requirements and architecture
+  - doc             : Quick Reference for BFM and VVC
   - script          : Compile scripts
   - src             : PWM VIP BFM and VVC source code
   - tb              : PWM VIP testbenches

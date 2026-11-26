@@ -115,7 +115,7 @@ Default value for the record is C_PWM_BFM_CONFIG_DEFAULT.
 |                              | <t_pwm_types>`               |                 | IDLE_HIGH_Z, an observer tolerates 'Z' before   |
 |                              |                              |                 | the first active-going edge.                    |
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
-| jitter                       | time                         | 0 ns            | Maximum random offset of each generated edge,   |
+| jitter                       | time                         | 0 ns            | Maximum random delay of each generated edge,    |
 |                              |                              |                 | see :ref:`pwm_jitter`. 0 ns disables jitter, <  |
 |                              |                              |                 | 0 ns gives a TB_ERROR. Generation only.         |
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
@@ -160,9 +160,6 @@ Default value for the record is C_PWM_BFM_CONFIG_DEFAULT.
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
 | id_for_bfm                   | :ref:`t_msg_id               | ID_BFM          | Message ID used for logging general messages in |
 |                              | <message_ids>`               |                 | the BFM                                         |
-+------------------------------+------------------------------+-----------------+-------------------------------------------------+
-| id_for_bfm_wait              | :ref:`t_msg_id               | ID_BFM_WAIT     | Message ID used for logging waits in the BFM    |
-|                              | <message_ids>`               |                 |                                                 |
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
 
 Methods
@@ -611,12 +608,18 @@ sets where the pulse sits within the period:
 
 Jitter
 ----------------------------------------------------------------------------------------------------------------------------------
-With config.jitter = j > 0 ns, every generated edge is moved by a random offset in [-j, +j] from its ideal time. The
-offsets do not accumulate, so the mean period stays T. Edges are never reordered, every pulse and gap stays at least one
-resolution unit long, and an edge at the start of a period is not moved before the period start (so these edges only
-move later). A period start without an edge, e.g. center-aligned when the line is already inactive, is not moved and
-does not delay the following edge. The randomization starts from config.jitter_seed1/2 in every pwm_generate() call and every VVC run, so a
-run with the same seeds is reproducible. 0 % and 100 % are not affected.
+With config.jitter = j > 0 ns, every generated edge is delayed by a random offset in [0, j] (uniform distribution) from
+its ideal time. As with the max jitter of the Clock Generator VVC, the edges spread over a window of width j, so the
+period and the active time vary by up to +/- j. The offsets do not accumulate and every edge gets the same distribution,
+so the mean period stays T and the mean active time stays t_on. On average, the waveform is j/2 later than without
+jitter, including the first edge after a start.
+
+Edges are never reordered, every pulse and gap stays at least one resolution unit long, and every edge stays within its
+period; offsets that would break this are clamped, but an edge always stays within [0, j] of its ideal time. Clamping
+only happens with a pulse or gap not longer than j, and only then can the mean active time differ from t_on. A period
+start without an edge, e.g. center-aligned when the line is already inactive, is not moved and does not delay the
+following edge. The randomization starts from config.jitter_seed1/2 in every pwm_generate() call and every VVC run, so
+a run with the same seeds is reproducible. 0 % and 100 % are not affected.
 
 In the VVC, seed 1 is shifted by the instance index (GC_INSTANCE_IDX, wrapped within the seed range of
 ieee.math_real.uniform), so VVC instances with the same configuration jitter independently. Instance 0 uses the
@@ -1326,9 +1329,6 @@ See :ref:`Essential Mechanisms - Compile Scripts <vvc_framework_compile_scripts>
 Simulator compatibility and setup
 ----------------------------------------------------------------------------------------------------------------------------------
 .. include:: rst_snippets/simulator_compatibility.rst
-
-The maintenance testbenches of this VIP have been run with Questa Altera Starter FPGA Edition 2025.3 (``-t ps``) and
-GHDL 6.0.0.
 
 
 .. include:: rst_snippets/ip_disclaimer.rst
