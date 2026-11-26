@@ -16,7 +16,6 @@
 
 library ieee;
 use ieee.std_logic_1164.all;
-use ieee.numeric_std.all;
 
 library uvvm_util;
 context uvvm_util.uvvm_util_context;
@@ -40,7 +39,7 @@ package vvc_cmd_pkg is
   type t_vvc_cmd_record is record
     -- VVC dedicated fields
     period                    : time;    -- PWM period
-    active_time               : time;    -- Active time; duty and count/resolution are converted by the methods
+    active_time               : time;    -- Active time
     duty                      : real;    -- Expected duty cycle (pwm_check() with duty only)
     num_periods               : integer; -- Number of periods (checked >= 1 by the executor)
     -- Common VVC fields  (Used by td_vvc_framework_common_methods_pkg procedures, and thus mandatory)
@@ -53,7 +52,7 @@ package vvc_cmd_pkg is
     msg_id                    : t_msg_id;
     gen_integer_array         : integer_vector(0 to 1);
     gen_boolean               : boolean; -- DEPRECATED: will be removed in v3
-    timeout                   : time;    -- DEPRECATED: will be removed in v3
+    timeout                   : time;    -- Observation timeout (MEASURE, CHECK, CHECK_DUTY); marked deprecated in the UVVM template
     alert_level               : t_alert_level;
     delay                     : time;
     quietness                 : t_quietness;

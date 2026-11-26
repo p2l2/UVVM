@@ -141,10 +141,6 @@ Default value for the record is C_PWM_BFM_CONFIG_DEFAULT.
 | duty_tolerance               | real                         | 0.0             | Absolute tolerance on the checked duty cycle    |
 |                              |                              |                 | (inclusive), 0.0 to 1.0. Observation.           |
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
-| duty_rounding_margin         | real                         | 1.0e-12         | Added to duty_tolerance against real rounding,  |
-|                              |                              |                 | e.g. 0.26 - 0.25 > 0.01 in reals. Must be >=    |
-|                              |                              |                 | 0.0. Observation.                               |
-+------------------------------+------------------------------+-----------------+-------------------------------------------------+
 | min_pulse_width              | time                         | 0 ns            | Pulses or gaps shorter than this raise an alert |
 |                              |                              |                 | (glitch). 0 ns disables the check. Observation. |
 +------------------------------+------------------------------+-----------------+-------------------------------------------------+
@@ -175,14 +171,12 @@ Methods
 pwm_generate()
 ----------------------------------------------------------------------------------------------------------------------------------
 Generates num_periods complete periods on the line, then drives the idle level. The procedure returns at the end of the
-last period. The duty cycle is given as active time, as ratio or as counter value. The first period starts at the call.
-0 ns and period as active time give a constant level without edges (0 % and 100 %).
+last period. The first period starts at the call. 0 ns and period as active time give a constant level without edges
+(0 % and 100 %). A duty cycle given as ratio or counter value is converted with the :ref:`pwm_conversion_functions_bfm`.
 
 .. code-block::
 
     pwm_generate(period, active_time, num_periods, msg, pwm, [scope, [msg_id_panel, [config]]])
-    pwm_generate(period, duty, num_periods, msg, pwm, [scope, [msg_id_panel, [config]]])
-    pwm_generate(period, count, resolution, num_periods, msg, pwm, [scope, [msg_id_panel, [config]]])
 
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | Object   | Name               | Dir.   | Type                         | Description                                             |
@@ -190,14 +184,6 @@ last period. The duty cycle is given as active time, as ratio or as counter valu
 | constant | period             | in     | time                         | The PWM period T. Must be > 0 ns.                       |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | active_time        | in     | time                         | The active time t_on. Must be within 0 ns to period.    |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | duty               | in     | real                         | Duty cycle as ratio 0.0 to 1.0, converted to an active  |
-|          |                    |        |                              | time rounded to the nearest simulator resolution unit   |
-|          |                    |        |                              | (half a unit is rounded up).                            |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | count              | in     | integer                      | Duty cycle as counter value, 0 to resolution            |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | resolution         | in     | integer                      | Number of counter steps of the period, >= 1             |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | num_periods        | in     | integer                      | Number of complete periods to generate, >= 1            |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
@@ -220,11 +206,10 @@ last period. The duty cycle is given as active time, as ratio or as counter valu
 
     -- Examples:
     pwm_generate(1 us, 250 ns, 10, "10 periods with 25 % duty", pwm, C_SCOPE, shared_msg_id_panel, C_PWM_BFM_CONFIG_DEFAULT);
-    pwm_generate(1 us, 0.25, 10, "10 periods with 25 % duty", pwm, C_SCOPE, shared_msg_id_panel, C_PWM_BFM_CONFIG_DEFAULT);
-    pwm_generate(1 us, 64, 256, 10, "10 periods with 64/256 duty", pwm, C_SCOPE, shared_msg_id_panel, C_PWM_BFM_CONFIG_DEFAULT);
+    pwm_generate(1 us, pwm_count_to_active_time(64, 256, 1 us), 10, "10 periods with 64/256 duty", pwm, C_SCOPE, shared_msg_id_panel, C_PWM_BFM_CONFIG_DEFAULT);
 
     -- With the default values of the optional parameters:
-    pwm_generate(1 us, 0.25, 10, "10 periods with 25 % duty", pwm);
+    pwm_generate(1 us, pwm_duty_to_active_time(0.25, 1 us), 10, "10 periods with 25 % duty", pwm);
 
 
 .. _pwm_drive_period_bfm:
@@ -236,12 +221,12 @@ the period. Unlike pwm_generate(), the line is not returned to the idle level, s
 waveform, e.g. with parameters that change from period to period. The jitter seeds are passed as variables, so
 consecutive calls continue the random sequence. A log message is written with ID config.id_for_bfm after each period.
 
-The overload with 'abort' returns at once with aborted = true when 'abort' has an event during the period. The line then
-keeps its level; the caller drives the idle level, e.g. with pwm_drive_idle(). The VVC uses this overload.
+The procedure returns at once with aborted = true when 'abort' has an event during the period. The line then keeps its
+level; the caller drives the idle level, e.g. with pwm_drive_idle(). The VVC uses this for pwm_abort(); without a VVC,
+pass a signal that is never toggled.
 
 .. code-block::
 
-    pwm_drive_period(period, active_time, seed1, seed2, msg, pwm, [scope, [msg_id_panel, [config]]])
     pwm_drive_period(period, active_time, seed1, seed2, aborted, msg, pwm, abort, [scope, [msg_id_panel, [config]]])
 
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
@@ -257,15 +242,13 @@ keeps its level; the caller drives the idle level, e.g. with pwm_drive_idle(). T
 | variable | seed2              | inout  | positive                     | Jitter seed, updated by the call. 1 to 2147483398,      |
 |          |                    |        |                              | see config.jitter_seed2                                 |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| variable | aborted            | out    | boolean                      | Overload with 'abort' only. True if the period was      |
-|          |                    |        |                              | ended by 'abort'.                                       |
+| variable | aborted            | out    | boolean                      | True if the period was ended by 'abort'                 |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | msg                | in     | string                       | A custom message to be appended in the log/alert        |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | signal   | pwm                | inout  | std_ulogic                   | The PWM line driven by the BFM                          |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| signal   | abort              | in     | boolean                      | Overload with 'abort' only. An event ends the period    |
-|          |                    |        |                              | at once.                                                |
+| signal   | abort              | in     | boolean                      | An event ends the period at once                        |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | scope              | in     | string                       | Describes the scope from which the log/alert            |
 |          |                    |        |                              | originates. Default value is C_BFM_SCOPE ("PWM BFM").   |
@@ -283,12 +266,12 @@ keeps its level; the caller drives the idle level, e.g. with pwm_drive_idle(). T
     -- Examples:
     v_seed1 := v_config.jitter_seed1;
     v_seed2 := v_config.jitter_seed2;
-    pwm_drive_period(1 us, 250 ns, v_seed1, v_seed2, "25 % duty", pwm, C_SCOPE, shared_msg_id_panel, v_config);
-    pwm_drive_period(1 us, 500 ns, v_seed1, v_seed2, "50 % duty", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+    pwm_drive_period(1 us, 250 ns, v_seed1, v_seed2, v_aborted, "25 % duty", pwm, abort, C_SCOPE, shared_msg_id_panel, v_config);
+    pwm_drive_period(1 us, 500 ns, v_seed1, v_seed2, v_aborted, "50 % duty", pwm, abort, C_SCOPE, shared_msg_id_panel, v_config);
     pwm_drive_idle("End of the waveform", pwm, C_SCOPE, shared_msg_id_panel, v_config);
 
     -- With the default values of the optional parameters:
-    pwm_drive_period(1 us, 500 ns, v_seed1, v_seed2, "50 % duty", pwm);
+    pwm_drive_period(1 us, 500 ns, v_seed1, v_seed2, v_aborted, "50 % duty", pwm, abort);
 
 
 .. _pwm_drive_idle_bfm:
@@ -352,7 +335,7 @@ is ignored.
 
 .. code-block::
 
-    pwm_measure(result, msg, pwm, [terminate,] [num_periods, [timeout, [scope, [msg_id_panel, [config]]]]])
+    pwm_measure(result, msg, pwm, terminate_loop, [num_periods, [timeout, [scope, [msg_id_panel, [config]]]]])
 
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | Object   | Name               | Dir.   | Type                         | Description                                             |
@@ -364,9 +347,10 @@ is ignored.
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | signal   | pwm                | in     | std_ulogic                   | The PWM line observed by the BFM                        |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| signal   | terminate          | in     | std_ulogic                   | Optional (overload). '1' ends the observation at once,  |
-|          |                    |        |                              | without an alert (logged with ID_TERMINATE_CMD). Used   |
-|          |                    |        |                              | by the VVC for terminate_current_command().             |
+| signal   | terminate_loop     | in     | std_ulogic                   | '1' ends the observation at once, without an alert      |
+|          |                    |        |                              | (logged with ID_TERMINATE_CMD). Used by the VVC for     |
+|          |                    |        |                              | terminate_current_command(); without a VVC, pass a      |
+|          |                    |        |                              | signal that stays '0'.                                  |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | num_periods        | in     | integer                      | Number of periods to measure, >= 1. Default value is 1. |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
@@ -389,26 +373,24 @@ is ignored.
 .. code-block::
 
     -- Examples:
-    pwm_measure(v_result, "Measure the PWM output", pwm, 1, 3 us, C_SCOPE, shared_msg_id_panel, C_PWM_BFM_CONFIG_DEFAULT);
-    pwm_measure(v_result, "Mean of 8 periods", pwm, 8, 10 us, C_SCOPE, shared_msg_id_panel, C_PWM_BFM_CONFIG_DEFAULT);
+    pwm_measure(v_result, "Measure the PWM output", pwm, terminate_loop, 1, 3 us, C_SCOPE, shared_msg_id_panel, C_PWM_BFM_CONFIG_DEFAULT);
+    pwm_measure(v_result, "Mean of 8 periods", pwm, terminate_loop, 8, 10 us, C_SCOPE, shared_msg_id_panel, C_PWM_BFM_CONFIG_DEFAULT);
 
     -- With the default values of the optional parameters (one period, no timeout unless config.timeout is set):
-    pwm_measure(v_result, "Measure the PWM output", pwm);
+    pwm_measure(v_result, "Measure the PWM output", pwm, terminate_loop);
 
 
 .. _pwm_check_bfm:
 
 pwm_check()
 ----------------------------------------------------------------------------------------------------------------------------------
-Checks num_periods consecutive periods. The expected waveform is given as period and active time, as period and counter
-value, or as duty cycle:
+Checks num_periods consecutive periods. The expected waveform is given as period and active time, or as duty cycle:
 
 * With period and active_time, each period is checked within config.period_tolerance and config.active_time_tolerance
-  (inclusive).
-* With period, count and resolution, the active time is (count / resolution) * period, rounded as in pwm_generate(),
-  and the check is the same as with active_time.
-* With duty, the duty cycle of each period is checked within config.duty_tolerance (inclusive, plus
-  config.duty_rounding_margin), independent of the period.
+  (inclusive). An active time given as counter value is converted with pwm_count_to_active_time(), see
+  :ref:`pwm_conversion_functions_bfm`.
+* With duty, the duty cycle of each period is checked within config.duty_tolerance (inclusive; a margin of 1.0e-12 is
+  added against real rounding), independent of the period.
 
 For all overloads:
 
@@ -424,9 +406,8 @@ For all overloads:
 
 .. code-block::
 
-    pwm_check(period, active_time, msg, pwm, [terminate,] [num_periods, [timeout, [alert_level, [scope, [msg_id_panel, [config]]]]]])
-    pwm_check(period, count, resolution, msg, pwm, [terminate,] [num_periods, [timeout, [alert_level, [scope, [msg_id_panel, [config]]]]]])
-    pwm_check(duty, msg, pwm, [terminate,] [num_periods, [timeout, [alert_level, [scope, [msg_id_panel, [config]]]]]])
+    pwm_check(period, active_time, msg, pwm, terminate_loop, [num_periods, [timeout, [alert_level, [scope, [msg_id_panel, [config]]]]]])
+    pwm_check(duty, msg, pwm, terminate_loop, [num_periods, [timeout, [alert_level, [scope, [msg_id_panel, [config]]]]]])
 
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | Object   | Name               | Dir.   | Type                         | Description                                             |
@@ -435,20 +416,16 @@ For all overloads:
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | active_time        | in     | time                         | The expected active time, 0 ns to period                |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | count              | in     | integer                      | The expected active time as counter value, 0 to         |
-|          |                    |        |                              | resolution                                              |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | resolution         | in     | integer                      | Number of counter steps of the period, >= 1             |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | duty               | in     | real                         | The expected duty cycle, 0.0 to 1.0                     |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | msg                | in     | string                       | A custom message to be appended in the log/alert        |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | signal   | pwm                | in     | std_ulogic                   | The PWM line observed by the BFM                        |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| signal   | terminate          | in     | std_ulogic                   | Optional (overload). '1' ends the observation at once,  |
-|          |                    |        |                              | without an alert (logged with ID_TERMINATE_CMD). Used   |
-|          |                    |        |                              | by the VVC for terminate_current_command().             |
+| signal   | terminate_loop     | in     | std_ulogic                   | '1' ends the observation at once, without an alert      |
+|          |                    |        |                              | (logged with ID_TERMINATE_CMD). Used by the VVC for     |
+|          |                    |        |                              | terminate_current_command(); without a VVC, pass a      |
+|          |                    |        |                              | signal that stays '0'.                                  |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | num_periods        | in     | integer                      | Number of consecutive periods to check, >= 1. Default   |
 |          |                    |        |                              | value is 1.                                             |
@@ -475,19 +452,20 @@ For all overloads:
 .. code-block::
 
     -- Examples:
-    pwm_check(1 us, 250 ns, "Check 5 periods", pwm, 5, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, C_PWM_BFM_CONFIG_DEFAULT);
-    pwm_check(1 us, 64, 256, "Check 5 periods with 64/256 duty", pwm, 5, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
-    pwm_check(0.25, "Check 25 % duty", pwm, 10, 15 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+    pwm_check(1 us, 250 ns, "Check 5 periods", pwm, terminate_loop, 5, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, C_PWM_BFM_CONFIG_DEFAULT);
+    pwm_check(1 us, pwm_count_to_active_time(64, 256, 1 us), "Check 5 periods with 64/256 duty", pwm, terminate_loop, 5, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+    pwm_check(0.25, "Check 25 % duty", pwm, terminate_loop, 10, 15 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
 
     -- With the default values of the optional parameters:
-    pwm_check(1 us, 250 ns, "Check 5 periods", pwm, 5);
+    pwm_check(1 us, 250 ns, "Check 5 periods", pwm, terminate_loop, 5);
 
 
 .. _pwm_conversion_functions_bfm:
 
 Conversion functions
 ----------------------------------------------------------------------------------------------------------------------------------
-The BFM package also provides the functions used to convert a duty cycle to an active time, and the idle value:
+The generation procedures and pwm_check() with a period take the active time. These functions convert a duty cycle given
+as ratio or counter value to an active time, give the idle value, and check generation parameters:
 
 
 +------------------------------------------------------------------+--------------------------------------------------------------+
@@ -495,33 +473,45 @@ The BFM package also provides the functions used to convert a duty cycle to an a
 +==================================================================+==============================================================+
 | pwm_duty_to_active_time(duty, period) return time                | duty * period, rounded to the nearest simulator resolution   |
 |                                                                  | unit (half a unit is rounded up). Requires 0.0 <= duty <=    |
-|                                                                  | 1.0 and period > 0 ns.                                       |
+|                                                                  | 1.0 and period > 0 ns; a duty outside gives an active time   |
+|                                                                  | that the procedures reject with a TB_ERROR.                  |
 +------------------------------------------------------------------+--------------------------------------------------------------+
 | pwm_count_to_active_time(count, resolution, period) return time  | (count / resolution) * period, rounded as                    |
-|                                                                  | pwm_duty_to_active_time(). Requires 0 <= count <=            |
-|                                                                  | resolution.                                                  |
+|                                                                  | pwm_duty_to_active_time(). count is natural, resolution      |
+|                                                                  | positive; count > resolution gives an active time that the   |
+|                                                                  | procedures reject with a TB_ERROR.                           |
 +------------------------------------------------------------------+--------------------------------------------------------------+
 | pwm_idle_value(config) return std_ulogic                         | The value driven on the line when idle, given by             |
 |                                                                  | config.idle_level and config.polarity ('Z' for IDLE_HIGH_Z). |
 +------------------------------------------------------------------+--------------------------------------------------------------+
+| pwm_generation_is_valid() return boolean, see below              | True if period > 0 ns, 0 ns <= active_time <= period,        |
+|                                                                  | num_periods >= 1 and jitter >= 0 ns; otherwise one TB_ERROR  |
+|                                                                  | naming proc_call, and false. The defaults of num_periods (1) |
+|                                                                  | and jitter (0 ns) are valid values. The parameter check of   |
+|                                                                  | the BFM procedures and the VVC.                              |
++------------------------------------------------------------------+--------------------------------------------------------------+
+
+.. code-block::
+
+    pwm_generation_is_valid(period, active_time, proc_call, msg, [scope, [num_periods, [jitter]]]) return boolean
 
 Local BFM overloads
 ==================================================================================================================================
 All optional parameters of the PWM BFM procedures have default values, so a call with the key parameters only uses
 C_BFM_SCOPE, shared_msg_id_panel and C_PWM_BFM_CONFIG_DEFAULT, e.g. ::
 
-    pwm_check(1 us, 250 ns, "Check 5 periods", pwm, 5);
+    pwm_check(1 us, 250 ns, "Check 5 periods", pwm, terminate_loop, 5);
 
 A good approach for better readability and maintainability, when the testbench uses its own configuration or scope, is to
 make simple, local overloads for the BFM procedures in the TB process. A local overload with the same parameters as the
 call above would be ambiguous, because the BFM procedure matches the call through its default values. Leave out the
-signal instead, which the local procedure can read directly, e.g. ::
+signals instead, which the local procedure can read directly, e.g. ::
 
     pwm_check(1 us, 250 ns, "Check 5 periods", 5);
 
 rather than ::
 
-    pwm_check(1 us, 250 ns, "Check 5 periods", pwm, 5, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, C_PWM_CONFIG_LOCAL);
+    pwm_check(1 us, 250 ns, "Check 5 periods", pwm, terminate_loop, 5, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, C_PWM_CONFIG_LOCAL);
 
 By defining the local overload as e.g. ::
 
@@ -535,6 +525,7 @@ By defining the local overload as e.g. ::
                 active_time,          -- Keep as is
                 msg,                  -- Keep as is
                 pwm,                  -- The TB signal
+                terminate_loop,       -- A TB signal that stays '0'
                 num_periods,          -- Keep as is
                 C_UNDEFINED_TIME,     -- Use the timeout from the config
                 ERROR,                -- Use the default
@@ -590,7 +581,8 @@ sets where the pulse sits within the period:
 
 * t_on = 0 ns (0 %) and t_on = T (100 %) give a constant inactive or active level without edges. Switching between these
   and other duty cycles gives no glitches.
-* Times given as duty or count/resolution are rounded to the nearest simulator resolution unit, half a unit up.
+* Active times converted from a duty or count/resolution are rounded to the nearest simulator resolution unit, half a
+  unit up.
 * An observer measures T from active-going edge to active-going edge and t_on from the active-going to the inactive-going
   edge. It cannot tell alignments apart from a constant waveform.
 * With IDLE_ACTIVE, the line is already at the active level when a left-aligned generation starts, so the first period
@@ -832,8 +824,6 @@ command completes at the end of the last period. GENERATOR role only. A TB_ERROR
 .. code-block::
 
     pwm_generate(VVCT, vvc_instance_idx, period, active_time, num_periods, msg, [scope])
-    pwm_generate(VVCT, vvc_instance_idx, period, duty, num_periods, msg, [scope])
-    pwm_generate(VVCT, vvc_instance_idx, period, count, resolution, num_periods, msg, [scope])
 
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | Object   | Name               | Dir.   | Type                         | Description                                             |
@@ -846,14 +836,6 @@ command completes at the end of the last period. GENERATOR role only. A TB_ERROR
 | constant | period             | in     | time                         | The PWM period T. Must be > 0 ns.                       |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | active_time        | in     | time                         | The active time t_on. Must be within 0 ns to period.    |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | duty               | in     | real                         | Duty cycle as ratio 0.0 to 1.0, converted to an active  |
-|          |                    |        |                              | time rounded to the nearest simulator resolution unit   |
-|          |                    |        |                              | (half a unit is rounded up).                            |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | count              | in     | integer                      | Duty cycle as counter value, 0 to resolution            |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | resolution         | in     | integer                      | Number of counter steps of the period, >= 1             |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | num_periods        | in     | integer                      | Number of complete periods to generate, >= 1            |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
@@ -868,8 +850,8 @@ command completes at the end of the last period. GENERATOR role only. A TB_ERROR
 
     -- Examples:
     pwm_generate(PWM_VVCT, 1, 1 us, 250 ns, 10, "10 periods with 25 % duty", C_SCOPE);
-    pwm_generate(PWM_VVCT, 1, 1 us, 0.25, 10, "10 periods with 25 % duty", C_SCOPE);
-    pwm_generate(PWM_VVCT, 1, 1 us, 64, 256, 10, "10 periods with 64/256 duty", C_SCOPE);
+    pwm_generate(PWM_VVCT, 1, 1 us, pwm_duty_to_active_time(0.25, 1 us), 10, "10 periods with 25 % duty", C_SCOPE);
+    pwm_generate(PWM_VVCT, 1, 1 us, pwm_count_to_active_time(64, 256, 1 us), 10, "10 periods with 64/256 duty", C_SCOPE);
 
 
 .. _pwm_start_vvc:
@@ -883,8 +865,6 @@ for further commands while the waveform runs. GENERATOR role only. A TB_ERROR is
 .. code-block::
 
     pwm_start(VVCT, vvc_instance_idx, period, active_time, msg, [scope])
-    pwm_start(VVCT, vvc_instance_idx, period, duty, msg, [scope])
-    pwm_start(VVCT, vvc_instance_idx, period, count, resolution, msg, [scope])
 
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | Object   | Name               | Dir.   | Type                         | Description                                             |
@@ -898,14 +878,6 @@ for further commands while the waveform runs. GENERATOR role only. A TB_ERROR is
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | active_time        | in     | time                         | The active time t_on. Must be within 0 ns to period.    |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | duty               | in     | real                         | Duty cycle as ratio 0.0 to 1.0, converted to an active  |
-|          |                    |        |                              | time rounded to the nearest simulator resolution unit   |
-|          |                    |        |                              | (half a unit is rounded up).                            |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | count              | in     | integer                      | Duty cycle as counter value, 0 to resolution            |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | resolution         | in     | integer                      | Number of counter steps of the period, >= 1             |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | msg                | in     | string                       | A custom message to be appended in the log/alert        |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | scope              | in     | string                       | Describes the scope from which the log/alert            |
@@ -916,7 +888,7 @@ for further commands while the waveform runs. GENERATOR role only. A TB_ERROR is
 .. code-block::
 
     -- Examples:
-    pwm_start(PWM_VVCT, 1, 1 us, 0.5, "Start 1 MHz, 50 %", C_SCOPE);
+    pwm_start(PWM_VVCT, 1, 1 us, pwm_duty_to_active_time(0.5, 1 us), "Start 1 MHz, 50 %", C_SCOPE);
 
 
 .. _pwm_update_vvc:
@@ -931,8 +903,6 @@ terminate_current_command() withdraws an update that has not taken effect yet.
 .. code-block::
 
     pwm_update(VVCT, vvc_instance_idx, period, active_time, msg, [scope])
-    pwm_update(VVCT, vvc_instance_idx, period, duty, msg, [scope])
-    pwm_update(VVCT, vvc_instance_idx, period, count, resolution, msg, [scope])
 
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | Object   | Name               | Dir.   | Type                         | Description                                             |
@@ -946,14 +916,6 @@ terminate_current_command() withdraws an update that has not taken effect yet.
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | active_time        | in     | time                         | The active time t_on. Must be within 0 ns to period.    |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | duty               | in     | real                         | Duty cycle as ratio 0.0 to 1.0, converted to an active  |
-|          |                    |        |                              | time rounded to the nearest simulator resolution unit   |
-|          |                    |        |                              | (half a unit is rounded up).                            |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | count              | in     | integer                      | Duty cycle as counter value, 0 to resolution            |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | resolution         | in     | integer                      | Number of counter steps of the period, >= 1             |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | msg                | in     | string                       | A custom message to be appended in the log/alert        |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | scope              | in     | string                       | Describes the scope from which the log/alert            |
@@ -964,7 +926,7 @@ terminate_current_command() withdraws an update that has not taken effect yet.
 .. code-block::
 
     -- Examples:
-    pwm_update(PWM_VVCT, 1, 1 us, 0.75, "Change to 75 %", C_SCOPE);
+    pwm_update(PWM_VVCT, 1, 1 us, pwm_duty_to_active_time(0.75, 1 us), "Change to 75 %", C_SCOPE);
 
 
 .. _pwm_stop_vvc:
@@ -1141,14 +1103,12 @@ pwm_check()
 ----------------------------------------------------------------------------------------------------------------------------------
 Adds a check command to the PWM VVC executor queue, which will run as soon as all preceding commands have completed.
 When the command is scheduled to run, the executor calls the BFM :ref:`pwm_check_bfm` procedure with the VVC
-configuration. The expected waveform is given as period and active time, as period and counter value (converted to an
-active time in the method; an invalid count or resolution gives a TB_ERROR and the command is not queued), or as duty
-cycle (the transaction info operation is then CHECK_DUTY). OBSERVER role only.
+configuration. The expected waveform is given as period and active time, or as duty cycle (the transaction info
+operation is then CHECK_DUTY). OBSERVER role only.
 
 .. code-block::
 
     pwm_check(VVCT, vvc_instance_idx, period, active_time, msg, [num_periods, [timeout, [alert_level, [scope]]]])
-    pwm_check(VVCT, vvc_instance_idx, period, count, resolution, msg, [num_periods, [timeout, [alert_level, [scope]]]])
     pwm_check(VVCT, vvc_instance_idx, duty, msg, [num_periods, [timeout, [alert_level, [scope]]]])
 
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
@@ -1162,11 +1122,6 @@ cycle (the transaction info operation is then CHECK_DUTY). OBSERVER role only.
 | constant | period             | in     | time                         | The expected period. Must be > 0 ns.                    |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | active_time        | in     | time                         | The expected active time, 0 ns to period                |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | count              | in     | integer                      | The expected active time as counter value, 0 to         |
-|          |                    |        |                              | resolution                                              |
-+----------+--------------------+--------+------------------------------+---------------------------------------------------------+
-| constant | resolution         | in     | integer                      | Number of counter steps of the period, >= 1             |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
 | constant | duty               | in     | real                         | The expected duty cycle, 0.0 to 1.0                     |
 +----------+--------------------+--------+------------------------------+---------------------------------------------------------+
@@ -1193,7 +1148,7 @@ cycle (the transaction info operation is then CHECK_DUTY). OBSERVER role only.
     -- Examples:
     pwm_check(PWM_VVCT, 2, 1 us, 250 ns, "Check one period");
     pwm_check(PWM_VVCT, 2, 1 us, 250 ns, "Check 5 periods", 5, 10 us, ERROR, C_SCOPE);
-    pwm_check(PWM_VVCT, 2, 1 us, 64, 256, "Check 64/256 duty", 5, 10 us, ERROR, C_SCOPE);
+    pwm_check(PWM_VVCT, 2, 1 us, pwm_count_to_active_time(64, 256, 1 us), "Check 64/256 duty", 5, 10 us, ERROR, C_SCOPE);
     pwm_check(PWM_VVCT, 2, 0.25, "Check 25 % duty over 10 periods", 10, 15 us, ERROR, C_SCOPE);
 
 
@@ -1209,8 +1164,8 @@ Roles and generator run state
   the waveform keeps running (this matters for :ref:`vvc_framework_activity_watchdog` and await_uvvm_completion()).
 * Run-state errors raise a TB_ERROR and leave the line unchanged: pwm_start() while a run is active, pwm_update(),
   pwm_stop() or pwm_abort() without a run, pwm_generate() or pwm_drive_idle() during a continuous run.
-* Invalid duty or count/resolution values raise a TB_ERROR in the method and the command is not queued. Invalid period,
-  active_time, num_periods and config.jitter values raise a TB_ERROR in the executor and the command is skipped.
+* Invalid period, active_time, num_periods and config.jitter values raise a TB_ERROR in the executor and the command is
+  skipped. A duty or counter value outside its range arrives as an invalid active_time.
 * Changes of shared_pwm_vvc_config(idx).bfm_config take effect at the next period boundary. A negative config.jitter set
   during a run raises one TB_ERROR, and the run keeps the previous configuration.
 * "Next period boundary" means the next boundary after the request reaches the VVC. A pwm_update(), pwm_stop() or

@@ -16,7 +16,6 @@
 
 library ieee;
 use ieee.std_logic_1164.all;
-use ieee.numeric_std.all;
 
 library uvvm_util;
 context uvvm_util.uvvm_util_context;
@@ -247,29 +246,15 @@ begin
       return true;
     end function;
 
-    -- Parameter check of GENERATE_PERIODS, START and UPDATE. Raises at most one TB_ERROR.
+    -- Parameter check of GENERATE_PERIODS, START and UPDATE with the BFM rules. Raises at most one TB_ERROR.
+    -- The defaults are valid values, i.e. not checked.
     impure function parameters_are_valid(
-      constant check_num_periods : boolean;
-      constant check_jitter      : boolean
+      constant num_periods : integer := 1;
+      constant jitter      : time    := 0 ns
     ) return boolean is
-      constant C_FAILED : string := to_string(v_cmd.proc_call) & "=> Failed. ";
     begin
-      if v_cmd.period <= 0 ns then
-        alert(TB_ERROR, C_FAILED & "period must be > 0 ns, was " & to_string(v_cmd.period, ns) & "." & format_msg(v_cmd), C_SCOPE);
-      elsif v_cmd.active_time < 0 ns then
-        alert(TB_ERROR, C_FAILED & "active_time must be >= 0 ns, was " & to_string(v_cmd.active_time, ns) & "." & format_msg(v_cmd), C_SCOPE);
-      elsif v_cmd.active_time > v_cmd.period then
-        alert(TB_ERROR, C_FAILED & "active_time (" & to_string(v_cmd.active_time, ns) & ") must not exceed period (" &
-              to_string(v_cmd.period, ns) & ")." & format_msg(v_cmd), C_SCOPE);
-      elsif check_num_periods and v_cmd.num_periods < 1 then
-        alert(TB_ERROR, C_FAILED & "num_periods must be >= 1, was " & to_string(v_cmd.num_periods) & "." & format_msg(v_cmd), C_SCOPE);
-      elsif check_jitter and vvc_config.bfm_config.jitter < 0 ns then
-        alert(TB_ERROR, C_FAILED & "config.jitter must be >= 0 ns, was " & to_string(vvc_config.bfm_config.jitter, ns) & "." &
-              format_msg(v_cmd), C_SCOPE);
-      else
-        return true;
-      end if;
-      return false;
+      return pwm_generation_is_valid(v_cmd.period, v_cmd.active_time, to_string(v_cmd.proc_call), format_msg(v_cmd), C_SCOPE, num_periods,
+                                     jitter);
     end function;
 
     -- Generator settings for the log
@@ -386,11 +371,11 @@ begin
         -- Generator role. The waveform is driven by p_waveform; the executor only requests and awaits.
         when GENERATE_PERIODS =>
           if role_is(GENERATOR) and run_mode_is(IDLE, "Not allowed while a continuous generation is active.") and
-             parameters_are_valid(true, true) then
+             parameters_are_valid(v_cmd.num_periods, vvc_config.bfm_config.jitter) then
             set_transaction_info(IN_PROGRESS);
             check_idle_level;
-            log_command("started (" & config_to_string & ")");
             start_run(v_cmd.num_periods);
+            log_command("started (" & config_to_string & ")");
             wait until run_mode = IDLE or terminate_current_cmd.is_active = '1';
             if run_mode /= IDLE then
               -- terminate_current_command: idle level at once
@@ -404,7 +389,7 @@ begin
 
         when START =>
           if role_is(GENERATOR) and run_mode_is(IDLE, "A continuous generation is already active.") and
-             parameters_are_valid(false, true) then
+             parameters_are_valid(jitter => vvc_config.bfm_config.jitter) then
             set_transaction_info(IN_PROGRESS);
             check_idle_level;
             start_run(0);
@@ -414,9 +399,10 @@ begin
 
         -- terminate_current_command withdraws a pending UPDATE or STOP. Unless the period boundary has taken the request
         -- in the same delta cycle: then the command completed, which shows after one delta cycle.
+        -- UPDATE does not check config.jitter: a running generation keeps its config while the jitter is invalid.
         when UPDATE =>
           if role_is(GENERATOR) and run_mode_is(CONTINUOUS, "No continuous generation is active.") and
-             parameters_are_valid(false, false) then
+             parameters_are_valid then
             set_transaction_info(IN_PROGRESS);
             v_request_idx := update_req.idx + 1;
             update_req    <= (v_request_idx, v_cmd.period, v_cmd.active_time, 0);
@@ -474,51 +460,51 @@ begin
         when MEASURE =>
           if role_is(OBSERVER) then
             set_transaction_info(IN_PROGRESS);
-            pwm_measure(result       => v_result,
-                        msg          => format_msg(v_cmd),
-                        pwm          => pwm_vvc_if,
-                        terminate    => terminate_current_cmd.is_active,
-                        num_periods  => v_cmd.num_periods,
-                        timeout      => v_cmd.timeout,
-                        scope        => C_SCOPE,
-                        msg_id_panel => v_msg_id_panel,
-                        config       => vvc_config.bfm_config);
+            pwm_measure(result         => v_result,
+                        msg            => format_msg(v_cmd),
+                        pwm            => pwm_vvc_if,
+                        terminate_loop => terminate_current_cmd.is_active,
+                        num_periods    => v_cmd.num_periods,
+                        timeout        => v_cmd.timeout,
+                        scope          => C_SCOPE,
+                        msg_id_panel   => v_msg_id_panel,
+                        config         => vvc_config.bfm_config);
             work.td_vvc_entity_support_pkg.store_result(result_queue => result_queue,
                                                         cmd_idx      => v_cmd.cmd_idx,
                                                         result       => v_result);
-            set_global_vvc_transaction_info(vvc_transaction_info_trigger, vvc_transaction_info, v_cmd, v_result, COMPLETED, C_SCOPE);
+            set_transaction_info(COMPLETED);
           end if;
 
         when CHECK =>
           if role_is(OBSERVER) then
             set_transaction_info(IN_PROGRESS);
-            pwm_check(period       => v_cmd.period,
-                      active_time  => v_cmd.active_time,
-                      msg          => format_msg(v_cmd),
-                      pwm          => pwm_vvc_if,
-                      terminate    => terminate_current_cmd.is_active,
-                      num_periods  => v_cmd.num_periods,
-                      timeout      => v_cmd.timeout,
-                      alert_level  => v_cmd.alert_level,
-                      scope        => C_SCOPE,
-                      msg_id_panel => v_msg_id_panel,
-                      config       => vvc_config.bfm_config);
+            pwm_check(period         => v_cmd.period,
+                      active_time    => v_cmd.active_time,
+                      msg            => format_msg(v_cmd),
+                      pwm            => pwm_vvc_if,
+                      terminate_loop => terminate_current_cmd.is_active,
+                      num_periods    => v_cmd.num_periods,
+                      timeout        => v_cmd.timeout,
+                      alert_level    => v_cmd.alert_level,
+                      scope          => C_SCOPE,
+                      msg_id_panel   => v_msg_id_panel,
+                      config         => vvc_config.bfm_config);
             set_transaction_info(COMPLETED);
           end if;
 
         when CHECK_DUTY =>
           if role_is(OBSERVER) then
             set_transaction_info(IN_PROGRESS);
-            pwm_check(duty         => v_cmd.duty,
-                      msg          => format_msg(v_cmd),
-                      pwm          => pwm_vvc_if,
-                      terminate    => terminate_current_cmd.is_active,
-                      num_periods  => v_cmd.num_periods,
-                      timeout      => v_cmd.timeout,
-                      alert_level  => v_cmd.alert_level,
-                      scope        => C_SCOPE,
-                      msg_id_panel => v_msg_id_panel,
-                      config       => vvc_config.bfm_config);
+            pwm_check(duty           => v_cmd.duty,
+                      msg            => format_msg(v_cmd),
+                      pwm            => pwm_vvc_if,
+                      terminate_loop => terminate_current_cmd.is_active,
+                      num_periods    => v_cmd.num_periods,
+                      timeout        => v_cmd.timeout,
+                      alert_level    => v_cmd.alert_level,
+                      scope          => C_SCOPE,
+                      msg_id_panel   => v_msg_id_panel,
+                      config         => vvc_config.bfm_config);
             set_transaction_info(COMPLETED);
           end if;
 
@@ -668,7 +654,8 @@ begin
         end if;
         exit when stop_req /= v_stop_idx and stop_req /= stop_cancel;
 
-        -- Period boundary: latch a pending update (unless withdrawn) and the config
+        -- Period boundary: latch a pending update (unless withdrawn) and the config. A config with an invalid jitter
+        -- is not latched: the BFM would return at once, and the loop would not advance time.
         if update_req.idx /= v_update_idx then
           v_update_idx := update_req.idx;
           if update_req.idx /= update_cancel then

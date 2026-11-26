@@ -16,7 +16,6 @@
 
 library ieee;
 use ieee.std_logic_1164.all;
-use ieee.numeric_std.all;
 
 library uvvm_util;
 context uvvm_util.uvvm_util_context;
@@ -75,7 +74,7 @@ package transaction_pkg is
     period              : time;    -- Generator: generated period; observer: expected period
     active_time         : time;    -- Generator: generated active time; observer: expected active time
     duty                : real;    -- CHECK_DUTY: expected duty cycle
-    num_periods         : integer; -- GENERATE_PERIODS, CHECK, CHECK_DUTY; 0 otherwise
+    num_periods         : integer; -- GENERATE_PERIODS, MEASURE, CHECK, CHECK_DUTY; 0 otherwise
     vvc_meta            : t_vvc_meta;
     transaction_status  : t_transaction_status;
   end record t_base_transaction;

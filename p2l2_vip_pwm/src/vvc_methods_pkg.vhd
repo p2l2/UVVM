@@ -16,7 +16,6 @@
 
 library ieee;
 use ieee.std_logic_1164.all;
-use ieee.numeric_std.all;
 
 library uvvm_util;
 context uvvm_util.uvvm_util_context;
@@ -101,35 +100,12 @@ package vvc_methods_pkg is
   --==========================================================================================
 
   -- Generator role: generates num_periods complete periods, then drives the idle level. Completes at the end of the
-  -- last period. The duty cycle is given as active time, as ratio 0.0 to 1.0, or as count out of resolution steps.
+  -- last period. A duty cycle or counter value is converted with pwm_duty_to_active_time() or pwm_count_to_active_time().
   procedure pwm_generate(
     signal   VVCT                : inout t_vvc_target_record;
     constant vvc_instance_idx    : in    integer;
     constant period              : in    time;
     constant active_time         : in    time;
-    constant num_periods         : in    integer;
-    constant msg                 : in    string;
-    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
-    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
-  );
-
-  procedure pwm_generate(
-    signal   VVCT                : inout t_vvc_target_record;
-    constant vvc_instance_idx    : in    integer;
-    constant period              : in    time;
-    constant duty                : in    real;
-    constant num_periods         : in    integer;
-    constant msg                 : in    string;
-    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
-    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
-  );
-
-  procedure pwm_generate(
-    signal   VVCT                : inout t_vvc_target_record;
-    constant vvc_instance_idx    : in    integer;
-    constant period              : in    time;
-    constant count               : in    integer;
-    constant resolution          : in    integer;
     constant num_periods         : in    integer;
     constant msg                 : in    string;
     constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
@@ -147,27 +123,6 @@ package vvc_methods_pkg is
     constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
   );
 
-  procedure pwm_start(
-    signal   VVCT                : inout t_vvc_target_record;
-    constant vvc_instance_idx    : in    integer;
-    constant period              : in    time;
-    constant duty                : in    real;
-    constant msg                 : in    string;
-    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
-    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
-  );
-
-  procedure pwm_start(
-    signal   VVCT                : inout t_vvc_target_record;
-    constant vvc_instance_idx    : in    integer;
-    constant period              : in    time;
-    constant count               : in    integer;
-    constant resolution          : in    integer;
-    constant msg                 : in    string;
-    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
-    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
-  );
-
   -- Generator role: changes period and duty cycle of the continuous generation. Completes when the new values took
   -- effect at the next period boundary. terminate_current_command() withdraws an update that has not taken effect.
   procedure pwm_update(
@@ -175,27 +130,6 @@ package vvc_methods_pkg is
     constant vvc_instance_idx    : in    integer;
     constant period              : in    time;
     constant active_time         : in    time;
-    constant msg                 : in    string;
-    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
-    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
-  );
-
-  procedure pwm_update(
-    signal   VVCT                : inout t_vvc_target_record;
-    constant vvc_instance_idx    : in    integer;
-    constant period              : in    time;
-    constant duty                : in    real;
-    constant msg                 : in    string;
-    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
-    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
-  );
-
-  procedure pwm_update(
-    signal   VVCT                : inout t_vvc_target_record;
-    constant vvc_instance_idx    : in    integer;
-    constant period              : in    time;
-    constant count               : in    integer;
-    constant resolution          : in    integer;
     constant msg                 : in    string;
     constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
     constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
@@ -271,21 +205,6 @@ package vvc_methods_pkg is
     constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
   );
 
-  -- Observer role: active time given as counter value 'count' out of 'resolution' steps (BFM pwm_check() with count)
-  procedure pwm_check(
-    signal   VVCT                : inout t_vvc_target_record;
-    constant vvc_instance_idx    : in    integer;
-    constant period              : in    time;
-    constant count               : in    integer;
-    constant resolution          : in    integer;
-    constant msg                 : in    string;
-    constant num_periods         : in    integer        := 1;
-    constant timeout             : in    time           := C_UNDEFINED_TIME;
-    constant alert_level         : in    t_alert_level  := ERROR;
-    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
-    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
-  );
-
   --==========================================================================================
   -- Transaction info methods
   --==========================================================================================
@@ -294,15 +213,6 @@ package vvc_methods_pkg is
     variable vvc_transaction_info_group   : inout t_transaction_group;
     constant vvc_cmd                      : in t_vvc_cmd_record;
     constant vvc_config                   : in t_vvc_config;
-    constant transaction_status           : in t_transaction_status;
-    constant scope                        : in string := C_VVC_CMD_SCOPE_DEFAULT
-  );
-
-  procedure set_global_vvc_transaction_info (
-    signal   vvc_transaction_info_trigger : inout std_logic;
-    variable vvc_transaction_info_group   : inout t_transaction_group;
-    constant vvc_cmd                      : in t_vvc_cmd_record;
-    constant vvc_result                   : in t_vvc_result;
     constant transaction_status           : in t_transaction_status;
     constant scope                        : in string := C_VVC_CMD_SCOPE_DEFAULT
   );
@@ -320,50 +230,21 @@ package body vvc_methods_pkg is
   -- Methods dedicated to this VVC
   --==========================================================================================
 
-  -- Internal: queues a generator command. The duty cycle is already converted to active_time.
-  procedure send_generator_command(
+  -- Internal: queues a command. Fields a command does not use keep their defaults.
+  procedure send_command(
     signal   VVCT                : inout t_vvc_target_record;
     constant vvc_instance_idx    : in    integer;
     constant proc_call           : in    string;
     constant operation           : in    t_operation;
-    constant period              : in    time;
-    constant active_time         : in    time;
-    constant num_periods         : in    integer;
     constant msg                 : in    string;
     constant scope               : in    string;
-    constant parent_msg_id_panel : in    t_msg_id_panel
-  ) is
-    variable v_msg_id_panel : t_msg_id_panel := shared_msg_id_panel;
-  begin
-    -- Create command by setting common global 'VVCT' signal record and dedicated VVC 'shared_vvc_cmd' record
-    -- locking semaphore in set_general_target_and_command_fields to gain exclusive right to VVCT and shared_vvc_cmd
-    -- semaphore gets unlocked in await_cmd_from_sequencer of the targeted VVC
-    set_general_target_and_command_fields(VVCT, vvc_instance_idx, proc_call, msg, QUEUED, operation);
-    shared_vvc_cmd.period              := period;
-    shared_vvc_cmd.active_time         := active_time;
-    shared_vvc_cmd.num_periods         := num_periods;
-    shared_vvc_cmd.parent_msg_id_panel := parent_msg_id_panel;
-    if parent_msg_id_panel /= C_UNUSED_MSG_ID_PANEL then
-      v_msg_id_panel := parent_msg_id_panel;
-    end if;
-    send_command_to_vvc(VVCT, std.env.resolution_limit, scope, v_msg_id_panel);
-  end procedure;
-
-  -- Internal: queues an observer command
-  procedure send_observer_command(
-    signal   VVCT                : inout t_vvc_target_record;
-    constant vvc_instance_idx    : in    integer;
-    constant proc_call           : in    string;
-    constant operation           : in    t_operation;
-    constant period              : in    time;
-    constant active_time         : in    time;
-    constant duty                : in    real;
-    constant num_periods         : in    integer;
-    constant alert_level         : in    t_alert_level;
-    constant timeout             : in    time;
-    constant msg                 : in    string;
-    constant scope               : in    string;
-    constant parent_msg_id_panel : in    t_msg_id_panel
+    constant parent_msg_id_panel : in    t_msg_id_panel;
+    constant period              : in    time          := 0 ns;
+    constant active_time         : in    time          := 0 ns;
+    constant duty                : in    real          := 0.0;
+    constant num_periods         : in    integer       := 0;
+    constant timeout             : in    time          := C_UNDEFINED_TIME;
+    constant alert_level         : in    t_alert_level := ERROR
   ) is
     variable v_msg_id_panel : t_msg_id_panel := shared_msg_id_panel;
   begin
@@ -375,8 +256,8 @@ package body vvc_methods_pkg is
     shared_vvc_cmd.active_time         := active_time;
     shared_vvc_cmd.duty                := duty;
     shared_vvc_cmd.num_periods         := num_periods;
-    shared_vvc_cmd.alert_level         := alert_level;
     shared_vvc_cmd.timeout             := timeout;
+    shared_vvc_cmd.alert_level         := alert_level;
     shared_vvc_cmd.parent_msg_id_panel := parent_msg_id_panel;
     if parent_msg_id_panel /= C_UNUSED_MSG_ID_PANEL then
       v_msg_id_panel := parent_msg_id_panel;
@@ -395,40 +276,6 @@ package body vvc_methods_pkg is
     return ", timeout " & to_string(timeout, ns);
   end function;
 
-  -- Internal: checks a duty cycle given as ratio. Raises a TB_ERROR when it is invalid; the command is then not queued.
-  impure function duty_is_valid(
-    constant proc_call : string;
-    constant duty      : real;
-    constant msg       : string;
-    constant scope     : string
-  ) return boolean is
-  begin
-    if duty < 0.0 or duty > 1.0 then
-      alert(TB_ERROR, proc_call & "=> Failed. duty must be within 0.0 to 1.0." & add_msg_delimiter(msg), scope);
-      return false;
-    end if;
-    return true;
-  end function;
-
-  -- Internal: checks a duty cycle given as count out of resolution steps, as duty_is_valid()
-  impure function count_is_valid(
-    constant proc_call  : string;
-    constant count      : integer;
-    constant resolution : integer;
-    constant msg        : string;
-    constant scope      : string
-  ) return boolean is
-  begin
-    if resolution < 1 then
-      alert(TB_ERROR, proc_call & "=> Failed. resolution must be >= 1." & add_msg_delimiter(msg), scope);
-      return false;
-    elsif count < 0 or count > resolution then
-      alert(TB_ERROR, proc_call & "=> Failed. count must be within 0 to resolution." & add_msg_delimiter(msg), scope);
-      return false;
-    end if;
-    return true;
-  end function;
-
   procedure pwm_generate(
     signal   VVCT                : inout t_vvc_target_record;
     constant vvc_instance_idx    : in    integer;
@@ -443,48 +290,10 @@ package body vvc_methods_pkg is
     constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_string(period, ns) & ", " &
                                      to_string(active_time, ns) & ", " & to_string(num_periods) & ")";
   begin
-    send_generator_command(VVCT, vvc_instance_idx, C_PROC_CALL, GENERATE_PERIODS, period, active_time, num_periods, msg, scope, parent_msg_id_panel);
-  end procedure;
-
-  procedure pwm_generate(
-    signal   VVCT                : inout t_vvc_target_record;
-    constant vvc_instance_idx    : in    integer;
-    constant period              : in    time;
-    constant duty                : in    real;
-    constant num_periods         : in    integer;
-    constant msg                 : in    string;
-    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
-    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
-  ) is
-    constant C_PROC_NAME : string := "pwm_generate";
-    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_string(period, ns) & ", duty " &
-                                     to_string(duty, C_PWM_DECIMAL_DIGITS) & ", " & to_string(num_periods) & ")";
-  begin
-    if duty_is_valid(C_PROC_CALL, duty, msg, scope) then
-      send_generator_command(VVCT, vvc_instance_idx, C_PROC_CALL, GENERATE_PERIODS, period, pwm_duty_to_active_time(duty, period), num_periods, msg,
-                             scope, parent_msg_id_panel);
-    end if;
-  end procedure;
-
-  procedure pwm_generate(
-    signal   VVCT                : inout t_vvc_target_record;
-    constant vvc_instance_idx    : in    integer;
-    constant period              : in    time;
-    constant count               : in    integer;
-    constant resolution          : in    integer;
-    constant num_periods         : in    integer;
-    constant msg                 : in    string;
-    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
-    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
-  ) is
-    constant C_PROC_NAME : string := "pwm_generate";
-    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_string(period, ns) & ", count " &
-                                     to_string(count) & "/" & to_string(resolution) & ", " & to_string(num_periods) & ")";
-  begin
-    if count_is_valid(C_PROC_CALL, count, resolution, msg, scope) then
-      send_generator_command(VVCT, vvc_instance_idx, C_PROC_CALL, GENERATE_PERIODS, period, pwm_count_to_active_time(count, resolution, period),
-                             num_periods, msg, scope, parent_msg_id_panel);
-    end if;
+    send_command(VVCT, vvc_instance_idx, C_PROC_CALL, GENERATE_PERIODS, msg, scope, parent_msg_id_panel,
+                 period      => period,
+                 active_time => active_time,
+                 num_periods => num_periods);
   end procedure;
 
   procedure pwm_start(
@@ -500,46 +309,9 @@ package body vvc_methods_pkg is
     constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_string(period, ns) & ", " &
                                      to_string(active_time, ns) & ")";
   begin
-    send_generator_command(VVCT, vvc_instance_idx, C_PROC_CALL, START, period, active_time, 0, msg, scope, parent_msg_id_panel);
-  end procedure;
-
-  procedure pwm_start(
-    signal   VVCT                : inout t_vvc_target_record;
-    constant vvc_instance_idx    : in    integer;
-    constant period              : in    time;
-    constant duty                : in    real;
-    constant msg                 : in    string;
-    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
-    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
-  ) is
-    constant C_PROC_NAME : string := "pwm_start";
-    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_string(period, ns) & ", duty " &
-                                     to_string(duty, C_PWM_DECIMAL_DIGITS) & ")";
-  begin
-    if duty_is_valid(C_PROC_CALL, duty, msg, scope) then
-      send_generator_command(VVCT, vvc_instance_idx, C_PROC_CALL, START, period, pwm_duty_to_active_time(duty, period), 0, msg,
-                             scope, parent_msg_id_panel);
-    end if;
-  end procedure;
-
-  procedure pwm_start(
-    signal   VVCT                : inout t_vvc_target_record;
-    constant vvc_instance_idx    : in    integer;
-    constant period              : in    time;
-    constant count               : in    integer;
-    constant resolution          : in    integer;
-    constant msg                 : in    string;
-    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
-    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
-  ) is
-    constant C_PROC_NAME : string := "pwm_start";
-    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_string(period, ns) & ", count " &
-                                     to_string(count) & "/" & to_string(resolution) & ")";
-  begin
-    if count_is_valid(C_PROC_CALL, count, resolution, msg, scope) then
-      send_generator_command(VVCT, vvc_instance_idx, C_PROC_CALL, START, period, pwm_count_to_active_time(count, resolution, period),
-                             0, msg, scope, parent_msg_id_panel);
-    end if;
+    send_command(VVCT, vvc_instance_idx, C_PROC_CALL, START, msg, scope, parent_msg_id_panel,
+                 period      => period,
+                 active_time => active_time);
   end procedure;
 
   procedure pwm_update(
@@ -555,46 +327,9 @@ package body vvc_methods_pkg is
     constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_string(period, ns) & ", " &
                                      to_string(active_time, ns) & ")";
   begin
-    send_generator_command(VVCT, vvc_instance_idx, C_PROC_CALL, UPDATE, period, active_time, 0, msg, scope, parent_msg_id_panel);
-  end procedure;
-
-  procedure pwm_update(
-    signal   VVCT                : inout t_vvc_target_record;
-    constant vvc_instance_idx    : in    integer;
-    constant period              : in    time;
-    constant duty                : in    real;
-    constant msg                 : in    string;
-    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
-    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
-  ) is
-    constant C_PROC_NAME : string := "pwm_update";
-    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_string(period, ns) & ", duty " &
-                                     to_string(duty, C_PWM_DECIMAL_DIGITS) & ")";
-  begin
-    if duty_is_valid(C_PROC_CALL, duty, msg, scope) then
-      send_generator_command(VVCT, vvc_instance_idx, C_PROC_CALL, UPDATE, period, pwm_duty_to_active_time(duty, period), 0, msg,
-                             scope, parent_msg_id_panel);
-    end if;
-  end procedure;
-
-  procedure pwm_update(
-    signal   VVCT                : inout t_vvc_target_record;
-    constant vvc_instance_idx    : in    integer;
-    constant period              : in    time;
-    constant count               : in    integer;
-    constant resolution          : in    integer;
-    constant msg                 : in    string;
-    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
-    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
-  ) is
-    constant C_PROC_NAME : string := "pwm_update";
-    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_string(period, ns) & ", count " &
-                                     to_string(count) & "/" & to_string(resolution) & ")";
-  begin
-    if count_is_valid(C_PROC_CALL, count, resolution, msg, scope) then
-      send_generator_command(VVCT, vvc_instance_idx, C_PROC_CALL, UPDATE, period, pwm_count_to_active_time(count, resolution, period),
-                             0, msg, scope, parent_msg_id_panel);
-    end if;
+    send_command(VVCT, vvc_instance_idx, C_PROC_CALL, UPDATE, msg, scope, parent_msg_id_panel,
+                 period      => period,
+                 active_time => active_time);
   end procedure;
 
   procedure pwm_stop(
@@ -607,7 +342,7 @@ package body vvc_methods_pkg is
     constant C_PROC_NAME : string := "pwm_stop";
     constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ")";
   begin
-    send_generator_command(VVCT, vvc_instance_idx, C_PROC_CALL, STOP, 0 ns, 0 ns, 0, msg, scope, parent_msg_id_panel);
+    send_command(VVCT, vvc_instance_idx, C_PROC_CALL, STOP, msg, scope, parent_msg_id_panel);
   end procedure;
 
   procedure pwm_abort(
@@ -620,7 +355,7 @@ package body vvc_methods_pkg is
     constant C_PROC_NAME : string := "pwm_abort";
     constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ")";
   begin
-    send_generator_command(VVCT, vvc_instance_idx, C_PROC_CALL, ABORT, 0 ns, 0 ns, 0, msg, scope, parent_msg_id_panel);
+    send_command(VVCT, vvc_instance_idx, C_PROC_CALL, ABORT, msg, scope, parent_msg_id_panel);
   end procedure;
 
   procedure pwm_drive_idle(
@@ -633,7 +368,7 @@ package body vvc_methods_pkg is
     constant C_PROC_NAME : string := "pwm_drive_idle";
     constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ")";
   begin
-    send_generator_command(VVCT, vvc_instance_idx, C_PROC_CALL, DRIVE_IDLE, 0 ns, 0 ns, 0, msg, scope, parent_msg_id_panel);
+    send_command(VVCT, vvc_instance_idx, C_PROC_CALL, DRIVE_IDLE, msg, scope, parent_msg_id_panel);
   end procedure;
 
   procedure pwm_measure(
@@ -649,8 +384,9 @@ package body vvc_methods_pkg is
     constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_string(num_periods) &
                                      timeout_to_string(timeout) & ")";
   begin
-    send_observer_command(VVCT, vvc_instance_idx, C_PROC_CALL, MEASURE, 0 ns, 0 ns, 0.0, num_periods, ERROR, timeout, msg, scope,
-                          parent_msg_id_panel);
+    send_command(VVCT, vvc_instance_idx, C_PROC_CALL, MEASURE, msg, scope, parent_msg_id_panel,
+                 num_periods => num_periods,
+                 timeout     => timeout);
   end procedure;
 
   procedure pwm_check(
@@ -669,8 +405,12 @@ package body vvc_methods_pkg is
     constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_string(period, ns) & ", " &
                                      to_string(active_time, ns) & ", " & to_string(num_periods) & timeout_to_string(timeout) & ")";
   begin
-    send_observer_command(VVCT, vvc_instance_idx, C_PROC_CALL, CHECK, period, active_time, 0.0, num_periods, alert_level, timeout,
-                          msg, scope, parent_msg_id_panel);
+    send_command(VVCT, vvc_instance_idx, C_PROC_CALL, CHECK, msg, scope, parent_msg_id_panel,
+                 period      => period,
+                 active_time => active_time,
+                 num_periods => num_periods,
+                 timeout     => timeout,
+                 alert_level => alert_level);
   end procedure;
 
   procedure pwm_check(
@@ -688,31 +428,11 @@ package body vvc_methods_pkg is
     constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", duty " & to_string(duty, C_PWM_DECIMAL_DIGITS) & ", " &
                                      to_string(num_periods) & timeout_to_string(timeout) & ")";
   begin
-    send_observer_command(VVCT, vvc_instance_idx, C_PROC_CALL, CHECK_DUTY, 0 ns, 0 ns, duty, num_periods, alert_level, timeout, msg,
-                          scope, parent_msg_id_panel);
-  end procedure;
-
-  procedure pwm_check(
-    signal   VVCT                : inout t_vvc_target_record;
-    constant vvc_instance_idx    : in    integer;
-    constant period              : in    time;
-    constant count               : in    integer;
-    constant resolution          : in    integer;
-    constant msg                 : in    string;
-    constant num_periods         : in    integer        := 1;
-    constant timeout             : in    time           := C_UNDEFINED_TIME;
-    constant alert_level         : in    t_alert_level  := ERROR;
-    constant scope               : in    string         := C_VVC_CMD_SCOPE_DEFAULT;
-    constant parent_msg_id_panel : in    t_msg_id_panel := C_UNUSED_MSG_ID_PANEL -- Only intended for usage by parent HVVCs
-  ) is
-    constant C_PROC_NAME : string := "pwm_check";
-    constant C_PROC_CALL : string := C_PROC_NAME & "(" & to_string(VVCT, vvc_instance_idx) & ", " & to_string(period, ns) & ", count " &
-                                     to_string(count) & "/" & to_string(resolution) & ", " & to_string(num_periods) & timeout_to_string(timeout) & ")";
-  begin
-    if count_is_valid(C_PROC_CALL, count, resolution, msg, scope) then
-      send_observer_command(VVCT, vvc_instance_idx, C_PROC_CALL, CHECK, period, pwm_count_to_active_time(count, resolution, period), 0.0,
-                            num_periods, alert_level, timeout, msg, scope, parent_msg_id_panel);
-    end if;
+    send_command(VVCT, vvc_instance_idx, C_PROC_CALL, CHECK_DUTY, msg, scope, parent_msg_id_panel,
+                 duty        => duty,
+                 num_periods => num_periods,
+                 timeout     => timeout,
+                 alert_level => alert_level);
   end procedure;
 
   --==========================================================================================
@@ -741,28 +461,6 @@ package body vvc_methods_pkg is
 
       when others =>
         alert(TB_ERROR, "VVC operation not recognized", scope);
-    end case;
-
-    wait for 0 ns;
-  end procedure set_global_vvc_transaction_info;
-
-  procedure set_global_vvc_transaction_info (
-    signal   vvc_transaction_info_trigger : inout std_logic;
-    variable vvc_transaction_info_group   : inout t_transaction_group;
-    constant vvc_cmd                      : in t_vvc_cmd_record;
-    constant vvc_result                   : in t_vvc_result;
-    constant transaction_status           : in t_transaction_status;
-    constant scope                        : in string := C_VVC_CMD_SCOPE_DEFAULT
-  ) is
-  begin
-    -- The measurement itself is returned by fetch_result(); the transaction info only shows the status
-    case vvc_cmd.operation is
-      when MEASURE =>
-        vvc_transaction_info_group.bt.transaction_status := transaction_status;
-        gen_pulse(vvc_transaction_info_trigger, 0 ns, "pulsing global vvc transaction info trigger", scope, ID_NEVER);
-
-      when others =>
-        alert(TB_ERROR, "VVC operation does not update vvc_result ", scope);
     end case;
 
     wait for 0 ns;

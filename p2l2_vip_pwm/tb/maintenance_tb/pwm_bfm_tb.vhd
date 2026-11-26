@@ -52,7 +52,8 @@ architecture func of pwm_bfm_tb is
 
   -- Observation tests: the line and the stimulus requests from p_main to p_stimulus
   signal pwm_obs          : std_ulogic := '0';
-  signal no_terminate     : std_ulogic := '0'; -- for the overloads with a terminate signal
+  signal terminate_loop   : std_ulogic := '0'; -- terminate signal of the observation procedures, never set here
+  signal abort_drive      : boolean    := false; -- abort signal of pwm_drive_period(), never toggled here
   signal stim_start       : boolean    := false; -- toggled by p_main, starts a new stimulus (also during one)
   signal stim_busy        : boolean    := false;
   signal stim_segments    : t_segment_array(0 to C_MAX_SEGMENTS - 1);
@@ -107,6 +108,7 @@ begin
     variable v_config : t_pwm_bfm_config := C_PWM_BFM_CONFIG_DEFAULT;
     variable v_seed1  : positive;
     variable v_seed2  : positive;
+    variable v_aborted : boolean;
     variable v_start  : time;
     variable v_level  : std_ulogic;
     variable v_edges_a : t_edge_array(0 to 1999);
@@ -217,7 +219,7 @@ begin
       v_seed1 := v_config.jitter_seed1;
       v_seed2 := v_config.jitter_seed2;
       for i in params'range loop
-        pwm_drive_period(params(i).period, params(i).active_time, v_seed1, v_seed2, msg, pwm, C_SCOPE, shared_msg_id_panel, v_config);
+        pwm_drive_period(params(i).period, params(i).active_time, v_seed1, v_seed2, v_aborted, msg, pwm, abort_drive, C_SCOPE, shared_msg_id_panel, v_config);
       end loop;
       pwm_drive_idle("", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       check_generated(params, msg);
@@ -391,7 +393,7 @@ begin
       variable v_first    : time; -- first active-going edge after v_start
     begin
       stimulate_bfm(period, active_time, 3, v_config);
-      pwm_measure(v_result, msg, pwm_obs, 1, 3 * period, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, msg, pwm_obs, terminate_loop, 1, 3 * period, C_SCOPE, shared_msg_id_panel, v_config);
       check_measurement(period, active_time, msg);
       case v_config.alignment is
         when LEFT_ALIGNED   => v_first := 0 ns;
@@ -440,7 +442,7 @@ begin
 
     --============================================================================================================================
     elsif GC_TESTCASE = "duty_formats_and_rounding" then
-      -- Active time, ratio and counter value give the same waveform
+      -- Active time and the active times converted from a ratio and a counter value give the same waveform
       --============================================================================================================================
       log(ID_LOG_HDR, "T_on 25 ns, D 0.25 and 64/256 at T 100 ns", C_SCOPE);
       start_test;
@@ -448,11 +450,11 @@ begin
       settle;
       check_edges_rel((0 ns, 25 ns, 100 ns, 125 ns), "1010", "t_on 25 ns");
       start_test;
-      pwm_generate(100 ns, 0.25, 2, "duty", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_generate(100 ns, pwm_duty_to_active_time(0.25, 100 ns), 2, "duty", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       settle;
       check_edges_rel((0 ns, 25 ns, 100 ns, 125 ns), "1010", "D 0.25");
       start_test;
-      pwm_generate(100 ns, 64, 256, 2, "count", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_generate(100 ns, pwm_count_to_active_time(64, 256, 100 ns), 2, "count", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       settle;
       check_edges_rel((0 ns, 25 ns, 100 ns, 125 ns), "1010", "64/256");
 
@@ -460,35 +462,35 @@ begin
       -- Periods of a few resolution units give time stamps with more decimals than the log shows: UVVM warns once
       increment_expected_alerts(TB_WARNING, 1, "log time stamp truncated");
       start_test;
-      pwm_generate(10 ns, 1.0 / 3.0, 2, "D 1/3", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_generate(10 ns, pwm_duty_to_active_time(1.0 / 3.0, 10 ns), 2, "D 1/3", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       check_generated(repeat_period(10 ns, rounded_units(10 ns, 1, 3), 2), "D 1/3 at T 10 ns");
       start_test;
-      pwm_generate(10 ns, 1, 3, 2, "1/3", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_generate(10 ns, pwm_count_to_active_time(1, 3, 10 ns), 2, "1/3", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       check_generated(repeat_period(10 ns, rounded_units(10 ns, 1, 3), 2), "count 1/3 at T 10 ns");
       start_test;
-      pwm_generate(100 ns, 0.29, 2, "D 0.29", pwm, C_SCOPE, shared_msg_id_panel, v_config); -- 0.29 is not exact in binary
+      pwm_generate(100 ns, pwm_duty_to_active_time(0.29, 100 ns), 2, "D 0.29", pwm, C_SCOPE, shared_msg_id_panel, v_config); -- 0.29 is not exact in binary
       check_generated(repeat_period(100 ns, 29 ns, 2), "D 0.29 at T 100 ns");
       start_test;
-      pwm_generate(10 * C_RESOLUTION, 1, 4, 2, "1/4 of 10 units", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_generate(10 * C_RESOLUTION, pwm_count_to_active_time(1, 4, 10 * C_RESOLUTION), 2, "1/4 of 10 units", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       check_generated(repeat_period(10 * C_RESOLUTION, 3 * C_RESOLUTION, 2), "count 1/4 of 10 units: 2.5 rounds up to 3");
       -- More than 2**31 resolution units in the period
       start_test;
-      pwm_generate(4 ms, 1.0 / 3.0, 1, "D 1/3", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_generate(4 ms, pwm_duty_to_active_time(1.0 / 3.0, 4 ms), 1, "D 1/3", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       check_generated(repeat_period(4 ms, rounded_units(4 ms, 1, 3), 1), "D 1/3 at T 4 ms");
       start_test;
-      pwm_generate(4 ms, 1, 3, 1, "1/3", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_generate(4 ms, pwm_count_to_active_time(1, 3, 4 ms), 1, "1/3", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       check_generated(repeat_period(4 ms, rounded_units(4 ms, 1, 3), 1), "count 1/3 at T 4 ms");
       start_test;
-      pwm_generate(4 ms, 2, 3, 1, "2/3", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_generate(4 ms, pwm_count_to_active_time(2, 3, 4 ms), 1, "2/3", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       check_generated(repeat_period(4 ms, rounded_units(4 ms, 2, 3), 1), "count 2/3 at T 4 ms");
       start_test;
-      pwm_generate(10 ns, 0, 8, 2, "0/8", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_generate(10 ns, pwm_count_to_active_time(0, 8, 10 ns), 2, "0/8", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       check_generated(repeat_period(10 ns, 0 ns, 2), "count 0/8");
       start_test;
-      pwm_generate(10 ns, 8, 8, 2, "8/8", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_generate(10 ns, pwm_count_to_active_time(8, 8, 10 ns), 2, "8/8", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       check_generated(repeat_period(10 ns, 10 ns, 2), "count 8/8");
       start_test;
-      pwm_generate(10 ns, 1.0, 2, "D 1.0", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_generate(10 ns, pwm_duty_to_active_time(1.0, 10 ns), 2, "D 1.0", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       check_generated(repeat_period(10 ns, 10 ns, 2), "D 1.0");
 
     --============================================================================================================================
@@ -516,29 +518,20 @@ begin
       pwm_generate(10 ns, 10 ns + C_RESOLUTION, 1, "t_on > T", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       check_rejected("t_on > T");
 
+      -- Ratios and counter values outside their range give an active time outside 0 ns to period
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "D < 0");
       start_test;
-      pwm_generate(10 ns, -0.1, 1, "D -0.1", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_generate(10 ns, pwm_duty_to_active_time(-0.1, 10 ns), 1, "D -0.1", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       check_rejected("D -0.1");
 
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "D > 1");
       start_test;
-      pwm_generate(10 ns, 1.1, 1, "D 1.1", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_generate(10 ns, pwm_duty_to_active_time(1.1, 10 ns), 1, "D 1.1", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       check_rejected("D 1.1");
-
-      increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "N < 1");
-      start_test;
-      pwm_generate(10 ns, 0, 0, 1, "N 0", pwm, C_SCOPE, shared_msg_id_panel, v_config);
-      check_rejected("N 0");
-
-      increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "n < 0");
-      start_test;
-      pwm_generate(10 ns, -1, 4, 1, "n -1", pwm, C_SCOPE, shared_msg_id_panel, v_config);
-      check_rejected("n -1");
 
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "n > N");
       start_test;
-      pwm_generate(10 ns, 5, 4, 1, "n 5 of 4", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_generate(10 ns, pwm_count_to_active_time(5, 4, 10 ns), 1, "n 5 of 4", pwm, C_SCOPE, shared_msg_id_panel, v_config);
       check_rejected("n 5 of 4");
 
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "k < 1");
@@ -549,18 +542,18 @@ begin
       log(ID_LOG_HDR, "Invalid pwm_drive_period() parameters", C_SCOPE);
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "pwm_drive_period() period 0 ns");
       start_test;
-      pwm_drive_period(0 ns, 0 ns, v_seed1, v_seed2, "period 0 ns", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_drive_period(0 ns, 0 ns, v_seed1, v_seed2, v_aborted, "period 0 ns", pwm, abort_drive, C_SCOPE, shared_msg_id_panel, v_config);
       check_rejected("pwm_drive_period() period 0 ns");
 
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "pwm_drive_period() t_on > T");
       start_test;
-      pwm_drive_period(10 ns, 10 ns + C_RESOLUTION, v_seed1, v_seed2, "t_on > T", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_drive_period(10 ns, 10 ns + C_RESOLUTION, v_seed1, v_seed2, v_aborted, "t_on > T", pwm, abort_drive, C_SCOPE, shared_msg_id_panel, v_config);
       check_rejected("pwm_drive_period() t_on > T");
 
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "pwm_drive_period() jitter < 0 ns");
       v_config.jitter := -1 ns;
       start_test;
-      pwm_drive_period(10 ns, 5 ns, v_seed1, v_seed2, "jitter -1 ns", pwm, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_drive_period(10 ns, 5 ns, v_seed1, v_seed2, v_aborted, "jitter -1 ns", pwm, abort_drive, C_SCOPE, shared_msg_id_panel, v_config);
       check_rejected("pwm_drive_period() jitter -1 ns");
       v_config.jitter := 0 ns;
 
@@ -778,12 +771,12 @@ begin
       -- Three different periods: 40/100, 30/100, 20/100
       stimulate(seg('1', 40 ns) & seg('0', 60 ns) & seg('1', 30 ns) & seg('0', 70 ns) & seg('1', 20 ns) & seg('0', 80 ns));
       wait for 10 ns;
-      pwm_measure(v_result, "mid-pulse", pwm_obs, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "mid-pulse", pwm_obs, terminate_loop, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
       check_measurement(100 ns, 30 ns, "request mid-pulse");
       check_completion(200 ns, "request mid-pulse");
       stimulate(seg('1', 40 ns) & seg('0', 60 ns) & seg('1', 30 ns) & seg('0', 70 ns) & seg('1', 20 ns) & seg('0', 80 ns));
       wait for 50 ns;
-      pwm_measure(v_result, "mid-gap", pwm_obs, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "mid-gap", pwm_obs, terminate_loop, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
       check_measurement(100 ns, 30 ns, "request mid-gap");
       check_completion(200 ns, "request mid-gap");
       await_stimulus;
@@ -795,7 +788,7 @@ begin
       log(ID_LOG_HDR, "Mean of 4 unequal periods: T 100/200/100/200 ns, t_on 20/60/20/60 ns", C_SCOPE);
       stimulate(pwm_wave(100 ns, 20 ns, 1) & pwm_wave(200 ns, 60 ns, 1) & pwm_wave(100 ns, 20 ns, 1) & pwm_wave(200 ns, 60 ns, 1) &
                 seg('1', 20 ns));
-      pwm_measure(v_result, "4 periods", pwm_obs, 4, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "4 periods", pwm_obs, terminate_loop, 4, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
       check_value(v_result.period, 150 ns, ERROR, "mean period", C_SCOPE);
       check_value(v_result.active_time, 40 ns, ERROR, "mean active time", C_SCOPE);
       -- The duty cycle of the sums: 160 ns / 600 ns
@@ -809,7 +802,7 @@ begin
       -- An edge at 100 ns + 1 unit gives time stamps with more decimals than the log shows: UVVM warns once
       increment_expected_alerts(TB_WARNING, 1, "log time stamp truncated");
       stimulate(pwm_wave(100 ns, 25 ns, 1) & pwm_wave(100 ns + C_RESOLUTION, 25 ns, 1) & seg('1', 25 ns));
-      pwm_measure(v_result, "2 periods", pwm_obs, 2, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "2 periods", pwm_obs, terminate_loop, 2, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
       check_value(v_result.period, 100 ns + C_RESOLUTION, ERROR, "mean period rounded half up", C_SCOPE);
       check_value(v_result.active_time, 25 ns, ERROR, "mean active time", C_SCOPE);
       -- The duty cycle comes from the sums: 50 ns / (200 ns + 1 unit)
@@ -835,7 +828,7 @@ begin
       log(ID_LOG_HDR, "An active-low signal measured as active-high gives t_on = T - t_on", C_SCOPE);
       stimulate_bfm(100 ns, 30 ns, 3, v_config);
       v_config.polarity := ACTIVE_HIGH;
-      pwm_measure(v_result, "active-low line, active-high config", pwm_obs, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "active-low line, active-high config", pwm_obs, terminate_loop, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
       check_measurement(100 ns, 70 ns, "active-low line, active-high config");
       check_completion(130 ns, "active-low line, active-high config");
       await_stimulus;
@@ -847,24 +840,24 @@ begin
       log(ID_LOG_HDR, "Pwm_measure() on a constant line reports the constant level, no alert", C_SCOPE);
       set_line('0');
       v_start := now;
-      pwm_measure(v_result, "constant 0", pwm_obs, 1, 500 ns, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "constant 0", pwm_obs, terminate_loop, 1, 500 ns, C_SCOPE, shared_msg_id_panel, v_config);
       check_constant_result('0', 0.0, "constant 0");
       check_completion(500 ns, "constant 0");
       set_line('1');
       v_start := now;
-      pwm_measure(v_result, "constant 1", pwm_obs, 1, 500 ns, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "constant 1", pwm_obs, terminate_loop, 1, 500 ns, C_SCOPE, shared_msg_id_panel, v_config);
       check_constant_result('1', 1.0, "constant 1");
       check_completion(500 ns, "constant 1");
       v_config.polarity := ACTIVE_LOW;
       set_line('0');
-      pwm_measure(v_result, "constant 0, active-low", pwm_obs, 1, 500 ns, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "constant 0, active-low", pwm_obs, terminate_loop, 1, 500 ns, C_SCOPE, shared_msg_id_panel, v_config);
       check_constant_result('0', 1.0, "constant 0, active-low");
       v_config.polarity := ACTIVE_HIGH;
       -- A falling edge first, then constant: no active-going edge before the timeout
       stimulate(seg('1', 50 ns), '0');
       wait for 10 ns;
       v_start := now;
-      pwm_measure(v_result, "1 then constant 0", pwm_obs, 1, 500 ns, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "1 then constant 0", pwm_obs, terminate_loop, 1, 500 ns, C_SCOPE, shared_msg_id_panel, v_config);
       check_constant_result('0', 0.0, "1 then constant 0");
       check_completion(500 ns, "1 then constant 0");
 
@@ -872,61 +865,61 @@ begin
       set_line('0');
       v_config.constant_level_severity := ERROR;
       increment_expected_alerts_and_stop_limit(ERROR, 1, "constant 0, constant_level_severity ERROR");
-      pwm_measure(v_result, "constant 0, severity ERROR", pwm_obs, 1, 500 ns, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "constant 0, severity ERROR", pwm_obs, terminate_loop, 1, 500 ns, C_SCOPE, shared_msg_id_panel, v_config);
       check_constant_result('0', 0.0, "constant 0, severity ERROR");
       v_config.constant_level_severity := NO_ALERT;
 
       log(ID_LOG_HDR, "Constant 'Z' is a result if idle_level is IDLE_HIGH_Z, else an ERROR", C_SCOPE);
       set_line('Z');
       v_config.idle_level := IDLE_HIGH_Z;
-      pwm_measure(v_result, "constant Z, IDLE_HIGH_Z", pwm_obs, 1, 500 ns, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "constant Z, IDLE_HIGH_Z", pwm_obs, terminate_loop, 1, 500 ns, C_SCOPE, shared_msg_id_panel, v_config);
       check_constant_result('Z', 0.0, "constant Z, IDLE_HIGH_Z");
       v_config.idle_level := IDLE_INACTIVE;
       increment_expected_alerts_and_stop_limit(ERROR, 1, "constant Z, IDLE_INACTIVE");
-      pwm_measure(v_result, "constant Z, IDLE_INACTIVE", pwm_obs, 1, 500 ns, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "constant Z, IDLE_INACTIVE", pwm_obs, terminate_loop, 1, 500 ns, C_SCOPE, shared_msg_id_panel, v_config);
       check_constant_result('Z', 0.0, "constant Z, IDLE_INACTIVE");
 
       log(ID_LOG_HDR, "Pwm_check() with active_time: window num_periods * period, the timeout is not used", C_SCOPE);
       set_line('0');
       v_start := now;
-      pwm_check(100 ns, 0 ns, "0 % on 0", pwm_obs, 1, 500 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 0 ns, "0 % on 0", pwm_obs, terminate_loop, 1, 500 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(100 ns, "0 % on 0, 1 period");
       v_start := now;
-      pwm_check(100 ns, 0 ns, "0 % on 0, 3 periods", pwm_obs, 3, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 0 ns, "0 % on 0, 3 periods", pwm_obs, terminate_loop, 3, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(300 ns, "0 % on 0, 3 periods");
       log(ID_LOG_HDR, "Pwm_check() with duty: window = timeout", C_SCOPE);
       v_start := now;
-      pwm_check(0.0, "D 0.0 on 0", pwm_obs, 1, 500 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(0.0, "D 0.0 on 0", pwm_obs, terminate_loop, 1, 500 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(500 ns, "D 0.0 on 0");
       set_line('1');
-      pwm_check(100 ns, 100 ns, "100 % on 1", pwm_obs, 1, 500 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
-      pwm_check(1.0, "D 1.0 on 1", pwm_obs, 1, 500 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 100 ns, "100 % on 1", pwm_obs, terminate_loop, 1, 500 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(1.0, "D 1.0 on 1", pwm_obs, terminate_loop, 1, 500 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       v_config.polarity := ACTIVE_LOW;
-      pwm_check(100 ns, 0 ns, "0 % on 1, active-low", pwm_obs, 1, 500 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 0 ns, "0 % on 1, active-low", pwm_obs, terminate_loop, 1, 500 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       v_config.polarity := ACTIVE_HIGH;
 
       log(ID_LOG_HDR, "Wrong level and an edge inside the window raise one alert each", C_SCOPE);
       increment_expected_alerts_and_stop_limit(ERROR, 1, "0 % on 1");
       v_start := now;
-      pwm_check(100 ns, 0 ns, "0 % on 1", pwm_obs, 1, 500 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 0 ns, "0 % on 1", pwm_obs, terminate_loop, 1, 500 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(0 ns, "0 % on 1: returns at once");
       increment_expected_alerts_and_stop_limit(ERROR, 1, "D 0.0 on 1");
-      pwm_check(0.0, "D 0.0 on 1", pwm_obs, 1, 500 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(0.0, "D 0.0 on 1", pwm_obs, terminate_loop, 1, 500 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       increment_expected_alerts(WARNING, 1, "0 % on 1, alert_level WARNING");
-      pwm_check(100 ns, 0 ns, "0 % on 1", pwm_obs, 1, 500 ns, WARNING, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 0 ns, "0 % on 1", pwm_obs, terminate_loop, 1, 500 ns, WARNING, C_SCOPE, shared_msg_id_panel, v_config);
       increment_expected_alerts_and_stop_limit(ERROR, 1, "edge inside the window");
       stimulate(seg('0', 100 ns), '1');
       settle; -- the line is '1' before the stimulus
-      pwm_check(100 ns, 0 ns, "0 %, edge after 100 ns", pwm_obs, 3, 500 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 0 ns, "0 %, edge after 100 ns", pwm_obs, terminate_loop, 3, 500 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(100 ns, "0 %, edge after 100 ns");
       increment_expected_alerts_and_stop_limit(ERROR, 1, "edge in the last of 5 periods");
       stimulate(seg('0', 450 ns), '1');
       settle;
-      pwm_check(100 ns, 0 ns, "0 % for 5 periods, edge after 450 ns", pwm_obs, 5, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 0 ns, "0 % for 5 periods, edge after 450 ns", pwm_obs, terminate_loop, 5, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(450 ns, "0 % for 5 periods, edge after 450 ns");
       increment_expected_alerts_and_stop_limit(ERROR, 1, "edge inside the window, D 1.0");
       stimulate(seg('1', 100 ns), '0');
-      pwm_check(1.0, "D 1.0, edge after 100 ns", pwm_obs, 1, 500 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(1.0, "D 1.0, edge after 100 ns", pwm_obs, terminate_loop, 1, 500 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(100 ns, "D 1.0, edge after 100 ns");
 
     --============================================================================================================================
@@ -935,36 +928,36 @@ begin
       --============================================================================================================================
       log(ID_LOG_HDR, "Correct signal, no alert", C_SCOPE);
       stimulate(pwm_wave(100 ns, 25 ns, 3) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "exact", pwm_obs, 3, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "exact", pwm_obs, terminate_loop, 3, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(300 ns, "exact, k=3");
       await_stimulus;
 
       log(ID_LOG_HDR, "num_periods defaults to one period", C_SCOPE);
       stimulate(pwm_wave(100 ns, 25 ns, 1) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "exact, default num_periods", pwm_obs, config => v_config);
+      pwm_check(100 ns, 25 ns, "exact, default num_periods", pwm_obs, terminate_loop, config => v_config);
       check_completion(100 ns, "default num_periods = 1");
       await_stimulus;
 
-      log(ID_LOG_HDR, "Count/resolution overload, converted to t_on", C_SCOPE);
+      log(ID_LOG_HDR, "Counter value converted to t_on", C_SCOPE);
       stimulate(pwm_wave(100 ns, 25 ns, 3) & seg('1', 25 ns));
-      pwm_check(100 ns, 1, 4, "count 1/4", pwm_obs, 3, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, pwm_count_to_active_time(1, 4, 100 ns), "count 1/4", pwm_obs, terminate_loop, 3, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(300 ns, "count 1/4, k=3");
       await_stimulus;
       increment_expected_alerts_and_stop_limit(ERROR, 1, "count 3/10 on t_on 25 ns");
       stimulate(pwm_wave(100 ns, 25 ns, 1) & seg('1', 25 ns));
-      pwm_check(100 ns, 3, 10, "count 3/10, with terminate", pwm_obs, no_terminate, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, pwm_count_to_active_time(3, 10, 100 ns), "count 3/10", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(100 ns, "count 3/10");
       await_stimulus;
 
       log(ID_LOG_HDR, "T off by more than the tolerance", C_SCOPE);
       increment_expected_alerts_and_stop_limit(ERROR, 1, "T 101 ns, tolerance 0 ns");
       stimulate(pwm_wave(101 ns, 25 ns, 1) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "T 101 ns, tolerance 0 ns", pwm_obs, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "T 101 ns, tolerance 0 ns", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(101 ns, "T 101 ns");
       await_stimulus;
       increment_expected_alerts(WARNING, 1, "T 101 ns, alert_level WARNING");
       stimulate(pwm_wave(101 ns, 25 ns, 1) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "T 101 ns, WARNING", pwm_obs, 1, C_UNDEFINED_TIME, WARNING, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "T 101 ns, WARNING", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, WARNING, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
       log(ID_LOG_HDR, "Period tolerance 1 ns: +-1 ns passes, +-(1 ns + 1 unit) fails", C_SCOPE);
@@ -972,47 +965,47 @@ begin
       increment_expected_alerts(TB_WARNING, 1, "log time stamp truncated");
       v_config.period_tolerance := 1 ns;
       stimulate(pwm_wave(101 ns, 25 ns, 1) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "T 101 ns", pwm_obs, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "T 101 ns", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
       stimulate(pwm_wave(99 ns, 25 ns, 1) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "T 99 ns", pwm_obs, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "T 99 ns", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
       increment_expected_alerts_and_stop_limit(ERROR, 1, "T 101 ns + 1 unit");
       stimulate(pwm_wave(101 ns + C_RESOLUTION, 25 ns, 1) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "T 101 ns + 1 unit", pwm_obs, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "T 101 ns + 1 unit", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
       increment_expected_alerts_and_stop_limit(ERROR, 1, "T 99 ns - 1 unit");
       stimulate(pwm_wave(99 ns - C_RESOLUTION, 25 ns, 1) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "T 99 ns - 1 unit", pwm_obs, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "T 99 ns - 1 unit", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
       v_config.period_tolerance := 0 ns;
 
       log(ID_LOG_HDR, "Active time tolerance 1 ns: +-1 ns passes, +-(1 ns + 1 unit) fails", C_SCOPE);
       increment_expected_alerts_and_stop_limit(ERROR, 1, "t_on 26 ns, tolerance 0 ns");
       stimulate(pwm_wave(100 ns, 26 ns, 1) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "t_on 26 ns, tolerance 0 ns", pwm_obs, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "t_on 26 ns, tolerance 0 ns", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
       v_config.active_time_tolerance := 1 ns;
       stimulate(pwm_wave(100 ns, 26 ns, 1) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "t_on 26 ns", pwm_obs, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "t_on 26 ns", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
       stimulate(pwm_wave(100 ns, 24 ns, 1) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "t_on 24 ns", pwm_obs, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "t_on 24 ns", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
       increment_expected_alerts_and_stop_limit(ERROR, 1, "t_on 26 ns + 1 unit");
       stimulate(pwm_wave(100 ns, 26 ns + C_RESOLUTION, 1) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "t_on 26 ns + 1 unit", pwm_obs, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "t_on 26 ns + 1 unit", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
       increment_expected_alerts_and_stop_limit(ERROR, 1, "t_on 24 ns - 1 unit");
       stimulate(pwm_wave(100 ns, 24 ns - C_RESOLUTION, 1) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "t_on 24 ns - 1 unit", pwm_obs, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "t_on 24 ns - 1 unit", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
       v_config.active_time_tolerance := 0 ns;
 
       log(ID_LOG_HDR, "T and t_on wrong in the same period: one alert", C_SCOPE);
       increment_expected_alerts_and_stop_limit(ERROR, 1, "T and t_on wrong");
       stimulate(pwm_wave(110 ns, 30 ns, 1) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "T 110 ns, t_on 30 ns", pwm_obs, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "T 110 ns, t_on 30 ns", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
     --============================================================================================================================
@@ -1021,14 +1014,14 @@ begin
       --============================================================================================================================
       log(ID_LOG_HDR, "K=5, all correct", C_SCOPE);
       stimulate(pwm_wave(100 ns, 25 ns, 5) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "k=5 correct", pwm_obs, 5, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "k=5 correct", pwm_obs, terminate_loop, 5, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(500 ns, "k=5 correct");
       await_stimulus;
 
       log(ID_LOG_HDR, "K=5, T of period 3 wrong: one alert naming period 3/5", C_SCOPE);
       increment_expected_alerts_and_stop_limit(ERROR, 1, "period 3/5");
       stimulate(pwm_wave(100 ns, 25 ns, 2) & pwm_wave(110 ns, 25 ns, 1) & pwm_wave(100 ns, 25 ns, 2) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "k=5, period 3 wrong", pwm_obs, 5, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "k=5, period 3 wrong", pwm_obs, terminate_loop, 5, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(510 ns, "k=5, period 3 wrong");
       await_stimulus;
 
@@ -1036,7 +1029,7 @@ begin
       increment_expected_alerts_and_stop_limit(ERROR, 2, "periods 2/5 and 5/5");
       stimulate(pwm_wave(100 ns, 25 ns, 1) & pwm_wave(100 ns, 30 ns, 1) & pwm_wave(100 ns, 25 ns, 2) & pwm_wave(100 ns, 20 ns, 1) &
                 seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "k=5, periods 2 and 5 wrong", pwm_obs, 5, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "k=5, periods 2 and 5 wrong", pwm_obs, terminate_loop, 5, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
     --============================================================================================================================
@@ -1049,7 +1042,7 @@ begin
         if value /= '0' and value /= '1' and value /= 'L' and value /= 'H' then
           increment_expected_alerts_and_stop_limit(ERROR, 1, "'" & to_string(value) & "' inside the pulse");
           stimulate(seg('1', 10 ns) & seg(value, 1 ns) & seg('1', 14 ns) & seg('0', 75 ns) & seg('1', 25 ns));
-          pwm_measure(v_result, "'" & to_string(value) & "' inside the pulse", pwm_obs, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
+          pwm_measure(v_result, "'" & to_string(value) & "' inside the pulse", pwm_obs, terminate_loop, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
           check_measurement(100 ns, 25 ns, "'" & to_string(value) & "' inside the pulse");
           await_stimulus;
         end if;
@@ -1058,32 +1051,32 @@ begin
       log(ID_LOG_HDR, "X inside the gap, and inside a pwm_check() at alert_level WARNING", C_SCOPE);
       increment_expected_alerts_and_stop_limit(ERROR, 1, "X inside the gap");
       stimulate(seg('1', 25 ns) & seg('0', 30 ns) & seg('X', 1 ns) & seg('0', 44 ns) & seg('1', 25 ns));
-      pwm_measure(v_result, "X inside the gap", pwm_obs, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "X inside the gap", pwm_obs, terminate_loop, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
       check_measurement(100 ns, 25 ns, "X inside the gap");
       await_stimulus;
       increment_expected_alerts(WARNING, 1, "X inside period 2 of a check");
       stimulate(pwm_wave(100 ns, 25 ns, 1) & seg('1', 10 ns) & seg('X', 1 ns) & seg('1', 14 ns) & seg('0', 75 ns) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "X in period 2", pwm_obs, 2, C_UNDEFINED_TIME, WARNING, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "X in period 2", pwm_obs, terminate_loop, 2, C_UNDEFINED_TIME, WARNING, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
       log(ID_LOG_HDR, "Before the first active-going edge, 'Z' is legal only with IDLE_HIGH_Z", C_SCOPE);
       v_config.idle_level := IDLE_HIGH_Z;
       set_line('Z');
       stimulate(seg('0', 10 ns) & seg('Z', 10 ns) & pwm_wave(100 ns, 25 ns, 1) & seg('1', 25 ns), 'Z');
-      pwm_measure(v_result, "Z before the period, IDLE_HIGH_Z", pwm_obs, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "Z before the period, IDLE_HIGH_Z", pwm_obs, terminate_loop, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
       check_measurement(100 ns, 25 ns, "Z before the period, IDLE_HIGH_Z");
       await_stimulus;
       v_config.idle_level := IDLE_INACTIVE;
       increment_expected_alerts_and_stop_limit(ERROR, 1, "Z before the period, IDLE_INACTIVE");
       stimulate(seg('0', 10 ns) & seg('Z', 10 ns) & pwm_wave(100 ns, 25 ns, 1) & seg('1', 25 ns));
-      pwm_measure(v_result, "Z before the period, IDLE_INACTIVE", pwm_obs, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "Z before the period, IDLE_INACTIVE", pwm_obs, terminate_loop, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
       check_measurement(100 ns, 25 ns, "Z before the period, IDLE_INACTIVE");
       await_stimulus;
       log(ID_LOG_HDR, "'Z' inside the period is an ERROR also with IDLE_HIGH_Z", C_SCOPE);
       v_config.idle_level := IDLE_HIGH_Z;
       increment_expected_alerts_and_stop_limit(ERROR, 1, "Z inside the pulse, IDLE_HIGH_Z");
       stimulate(seg('1', 10 ns) & seg('Z', 1 ns) & seg('1', 14 ns) & seg('0', 75 ns) & seg('1', 25 ns));
-      pwm_measure(v_result, "Z inside the pulse, IDLE_HIGH_Z", pwm_obs, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "Z inside the pulse, IDLE_HIGH_Z", pwm_obs, terminate_loop, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
       check_measurement(100 ns, 25 ns, "Z inside the pulse, IDLE_HIGH_Z");
       await_stimulus;
 
@@ -1094,7 +1087,7 @@ begin
       log(ID_LOG_HDR, "A period of 'L' and 'H' only", C_SCOPE);
       set_line('0');
       stimulate(seg('L', 10 ns) & seg('H', 25 ns) & seg('L', 75 ns) & seg('H', 25 ns), 'L');
-      pwm_measure(v_result, "L/H period", pwm_obs, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "L/H period", pwm_obs, terminate_loop, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
       check_measurement(100 ns, 25 ns, "L/H period");
       await_stimulus;
 
@@ -1102,32 +1095,32 @@ begin
       set_line('0');
       stimulate(seg('0', 10 ns) & seg('1', 10 ns) & seg('H', 15 ns) & seg('L', 40 ns) & seg('0', 35 ns) &
                 seg('H', 25 ns) & seg('L', 75 ns) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "strong and weak levels mixed", pwm_obs, 2, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "strong and weak levels mixed", pwm_obs, terminate_loop, 2, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
       log(ID_LOG_HDR, "A constant 'H' or 'L' is the constant level '1' or '0'", C_SCOPE);
       set_line('H');
-      pwm_measure(v_result, "constant H", pwm_obs, 1, 200 ns, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "constant H", pwm_obs, terminate_loop, 1, 200 ns, C_SCOPE, shared_msg_id_panel, v_config);
       check_constant_result('1', 1.0, "constant H");
       set_line('L');
-      pwm_measure(v_result, "constant L", pwm_obs, 1, 200 ns, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "constant L", pwm_obs, terminate_loop, 1, 200 ns, C_SCOPE, shared_msg_id_panel, v_config);
       check_constant_result('0', 0.0, "constant L");
 
       log(ID_LOG_HDR, "Constant-level checks: '0'/'L' and '1'/'H' are the same level", C_SCOPE);
       set_line('0');
       stimulate(seg('0', 50 ns) & seg('L', 50 ns) & seg('0', 50 ns) & seg('L', 50 ns), 'L');
-      pwm_check(100 ns, 0 ns, "0 % on 0/L", pwm_obs, 2, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 0 ns, "0 % on 0/L", pwm_obs, terminate_loop, 2, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
       set_line('1');
       stimulate(seg('1', 50 ns) & seg('H', 50 ns) & seg('1', 50 ns), 'H');
-      pwm_check(1.0, "100 % on 1/H", pwm_obs, 1, 200 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(1.0, "100 % on 1/H", pwm_obs, terminate_loop, 1, 200 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
       log(ID_LOG_HDR, "'W' is no weak level of '0' or '1': an ERROR", C_SCOPE);
       set_line('0');
       increment_expected_alerts_and_stop_limit(ERROR, 1, "W during a 0 % check");
       stimulate(seg('0', 50 ns) & seg('W', 50 ns), '0');
-      pwm_check(100 ns, 0 ns, "W during a 0 % check", pwm_obs, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 0 ns, "W during a 0 % check", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
     --============================================================================================================================
@@ -1138,33 +1131,33 @@ begin
       v_config.min_pulse_width := 2 ns;
       increment_expected_alerts_and_stop_limit(ERROR, 1, "1 ns gap");
       stimulate(seg('1', 10 ns) & seg('0', 1 ns) & seg('1', 14 ns) & seg('0', 75 ns) & seg('1', 25 ns));
-      pwm_measure(v_result, "1 ns gap", pwm_obs, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "1 ns gap", pwm_obs, terminate_loop, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
       check_measurement(11 ns, 10 ns, "1 ns gap");
       await_stimulus;
       stimulate(seg('1', 10 ns) & seg('0', 2 ns) & seg('1', 14 ns) & seg('0', 75 ns) & seg('1', 25 ns));
-      pwm_measure(v_result, "2 ns gap", pwm_obs, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "2 ns gap", pwm_obs, terminate_loop, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
       check_measurement(12 ns, 10 ns, "2 ns gap");
       await_stimulus;
       increment_expected_alerts_and_stop_limit(ERROR, 1, "1 ns pulse");
       stimulate(seg('1', 1 ns) & seg('0', 99 ns) & seg('1', 25 ns));
-      pwm_measure(v_result, "1 ns pulse", pwm_obs, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "1 ns pulse", pwm_obs, terminate_loop, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
       check_measurement(100 ns, 1 ns, "1 ns pulse");
       await_stimulus;
       stimulate(seg('1', 2 ns) & seg('0', 98 ns) & seg('1', 25 ns));
-      pwm_measure(v_result, "2 ns pulse", pwm_obs, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "2 ns pulse", pwm_obs, terminate_loop, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
       check_measurement(100 ns, 2 ns, "2 ns pulse");
       await_stimulus;
 
       log(ID_LOG_HDR, "Runt in a pwm_check() at alert_level WARNING (the timing mismatch is a second WARNING)", C_SCOPE);
       increment_expected_alerts(WARNING, 2, "1 ns pulse in a check");
       stimulate(seg('1', 1 ns) & seg('0', 99 ns) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "1 ns pulse", pwm_obs, 1, C_UNDEFINED_TIME, WARNING, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "1 ns pulse", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, WARNING, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
       log(ID_LOG_HDR, "Min_pulse_width 0 ns: detection off", C_SCOPE);
       v_config.min_pulse_width := 0 ns;
       stimulate(seg('1', 10 ns) & seg('0', 1 ns) & seg('1', 14 ns) & seg('0', 75 ns) & seg('1', 25 ns));
-      pwm_measure(v_result, "1 ns gap, detection off", pwm_obs, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "1 ns gap, detection off", pwm_obs, terminate_loop, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
       check_measurement(11 ns, 10 ns, "1 ns gap, detection off");
       await_stimulus;
 
@@ -1175,40 +1168,40 @@ begin
       log(ID_LOG_HDR, "Line stuck after period 1 of 3: one ERROR at the timeout", C_SCOPE);
       increment_expected_alerts_and_stop_limit(ERROR, 1, "stuck after period 1");
       stimulate(pwm_wave(100 ns, 25 ns, 1) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "stuck after period 1", pwm_obs, 3, 400 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "stuck after period 1", pwm_obs, terminate_loop, 3, 400 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(400 ns, "stuck after period 1");
 
       log(ID_LOG_HDR, "Line stuck from the request: missing activity, not 0 % / 100 %", C_SCOPE);
       set_line('0');
       increment_expected_alerts_and_stop_limit(ERROR, 1, "stuck at 0");
       v_start := now;
-      pwm_check(100 ns, 25 ns, "stuck at 0", pwm_obs, 1, 300 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "stuck at 0", pwm_obs, terminate_loop, 1, 300 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(300 ns, "stuck at 0");
       increment_expected_alerts_and_stop_limit(ERROR, 1, "stuck at 0, default timeout (1 + 2) * T");
       v_start := now;
-      pwm_check(100 ns, 25 ns, "stuck at 0, default timeout", pwm_obs, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "stuck at 0, default timeout", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(300 ns, "stuck at 0, default timeout (1 + 2) * T");
       increment_expected_alerts_and_stop_limit(ERROR, 1, "stuck at 0, pwm_check() with duty");
       v_start := now;
-      pwm_check(0.25, "stuck at 0", pwm_obs, 1, 300 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(0.25, "stuck at 0", pwm_obs, terminate_loop, 1, 300 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(300 ns, "stuck at 0, pwm_check() with duty");
       set_line('1');
       increment_expected_alerts_and_stop_limit(ERROR, 1, "stuck at 1");
       v_start := now;
-      pwm_check(100 ns, 25 ns, "stuck at 1", pwm_obs, 1, 300 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "stuck at 1", pwm_obs, terminate_loop, 1, 300 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(300 ns, "stuck at 1");
 
       log(ID_LOG_HDR, "Timeout_severity WARNING", C_SCOPE);
       v_config.timeout_severity := WARNING;
       increment_expected_alerts(WARNING, 1, "stuck at 1, timeout_severity WARNING");
-      pwm_check(100 ns, 25 ns, "stuck at 1", pwm_obs, 1, 300 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "stuck at 1", pwm_obs, terminate_loop, 1, 300 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       v_config.timeout_severity := ERROR;
 
       log(ID_LOG_HDR, "Pwm_measure() with the line stuck after the active-going edge", C_SCOPE);
       set_line('0');
       increment_expected_alerts_and_stop_limit(ERROR, 1, "measure, stuck active");
       stimulate(seg('1', 0 ns), '1');
-      pwm_measure(v_result, "stuck active", pwm_obs, 1, 200 ns, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "stuck active", pwm_obs, terminate_loop, 1, 200 ns, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(200 ns, "measure, stuck active");
       check_value(v_result = C_PWM_MEASUREMENT_DEFAULT, ERROR, "measure, stuck active: default result", C_SCOPE);
 
@@ -1216,14 +1209,14 @@ begin
       set_line('0');
       increment_expected_alerts_and_stop_limit(ERROR, 1, "measure 3 periods, stuck after period 1");
       stimulate(pwm_wave(100 ns, 25 ns, 1) & seg('1', 25 ns));
-      pwm_measure(v_result, "3 periods, stuck after period 1", pwm_obs, 3, 400 ns, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "3 periods, stuck after period 1", pwm_obs, terminate_loop, 3, 400 ns, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(400 ns, "measure 3 periods, stuck after period 1");
       check_value(v_result = C_PWM_MEASUREMENT_DEFAULT, ERROR, "measure 3 periods, stuck: default result", C_SCOPE);
 
       log(ID_LOG_HDR, "The next call runs normally", C_SCOPE);
       set_line('0');
       stimulate(pwm_wave(100 ns, 25 ns, 1) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "after missing activity", pwm_obs, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "after missing activity", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
     --============================================================================================================================
@@ -1233,67 +1226,59 @@ begin
       log(ID_LOG_HDR, "Invalid observation parameters", C_SCOPE);
       v_start := now;
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "measure, num_periods 0");
-      pwm_measure(v_result, "num_periods 0", pwm_obs, 0, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "num_periods 0", pwm_obs, terminate_loop, 0, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "measure, timeout < 0 ns");
-      pwm_measure(v_result, "timeout -2 ns", pwm_obs, 1, -2 ns, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "timeout -2 ns", pwm_obs, terminate_loop, 1, -2 ns, C_SCOPE, shared_msg_id_panel, v_config);
       v_config.min_pulse_width := -1 ns;
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "measure, min_pulse_width < 0 ns");
-      pwm_measure(v_result, "min_pulse_width -1 ns", pwm_obs, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "min_pulse_width -1 ns", pwm_obs, terminate_loop, 1, 1 us, C_SCOPE, shared_msg_id_panel, v_config);
       v_config.min_pulse_width := 0 ns;
 
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "check, T 0 ns");
-      pwm_check(0 ns, 0 ns, "T 0 ns", pwm_obs, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(0 ns, 0 ns, "T 0 ns", pwm_obs, terminate_loop, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "check, T < 0 ns");
-      pwm_check(-1 ns, 0 ns, "T -1 ns", pwm_obs, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(-1 ns, 0 ns, "T -1 ns", pwm_obs, terminate_loop, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "check, t_on < 0 ns");
-      pwm_check(100 ns, -1 ns, "t_on -1 ns", pwm_obs, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, -1 ns, "t_on -1 ns", pwm_obs, terminate_loop, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "check, t_on > T");
-      pwm_check(100 ns, 100 ns + C_RESOLUTION, "t_on > T", pwm_obs, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 100 ns + C_RESOLUTION, "t_on > T", pwm_obs, terminate_loop, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "check, k 0");
-      pwm_check(100 ns, 25 ns, "k 0", pwm_obs, 0, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
-      increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "check, resolution 0");
-      pwm_check(100 ns, 0, 0, "resolution 0", pwm_obs, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
-      increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "check, count -1");
-      pwm_check(100 ns, -1, 4, "count -1", pwm_obs, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "k 0", pwm_obs, terminate_loop, 0, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "check, count > resolution");
-      pwm_check(100 ns, 5, 4, "count 5 of 4", pwm_obs, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, pwm_count_to_active_time(5, 4, 100 ns), "count 5 of 4", pwm_obs, terminate_loop, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "check, timeout < 0 ns");
-      pwm_check(100 ns, 25 ns, "timeout -2 ns", pwm_obs, 1, -2 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "timeout -2 ns", pwm_obs, terminate_loop, 1, -2 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       v_config.period_tolerance := -1 ns;
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "check, period_tolerance < 0 ns");
-      pwm_check(100 ns, 25 ns, "period_tolerance -1 ns", pwm_obs, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "period_tolerance -1 ns", pwm_obs, terminate_loop, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       v_config.period_tolerance := 0 ns;
       v_config.active_time_tolerance := -1 ns;
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "check, active_time_tolerance < 0 ns");
-      pwm_check(100 ns, 25 ns, "active_time_tolerance -1 ns", pwm_obs, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "active_time_tolerance -1 ns", pwm_obs, terminate_loop, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       v_config.active_time_tolerance := 0 ns;
 
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "check_duty, D < 0");
-      pwm_check(-0.1, "D -0.1", pwm_obs, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(-0.1, "D -0.1", pwm_obs, terminate_loop, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "check_duty, D > 1");
-      pwm_check(1.1, "D 1.1", pwm_obs, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(1.1, "D 1.1", pwm_obs, terminate_loop, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "check_duty, k 0");
-      pwm_check(0.5, "k 0", pwm_obs, 0, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(0.5, "k 0", pwm_obs, terminate_loop, 0, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "check_duty 0.0 without timeout");
-      pwm_check(0.0, "D 0.0, no timeout", pwm_obs, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(0.0, "D 0.0, no timeout", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "check_duty 1.0, timeout 0 ns");
-      pwm_check(1.0, "D 1.0, timeout 0 ns", pwm_obs, 1, 0 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(1.0, "D 1.0, timeout 0 ns", pwm_obs, terminate_loop, 1, 0 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       v_config.duty_tolerance := -0.1;
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "check_duty, duty_tolerance < 0");
-      pwm_check(0.5, "duty_tolerance -0.1", pwm_obs, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(0.5, "duty_tolerance -0.1", pwm_obs, terminate_loop, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       v_config.duty_tolerance := 1.1;
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "check_duty, duty_tolerance > 1");
-      pwm_check(0.5, "duty_tolerance 1.1", pwm_obs, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(0.5, "duty_tolerance 1.1", pwm_obs, terminate_loop, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       v_config.duty_tolerance := 0.0;
-      v_config.duty_rounding_margin := -1.0e-12;
-      increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "check_duty, duty_rounding_margin < 0");
-      pwm_check(0.5, "duty_rounding_margin -1e-12", pwm_obs, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
-      v_config.duty_rounding_margin := C_PWM_BFM_CONFIG_DEFAULT.duty_rounding_margin;
       check_completion(0 ns, "rejected calls use no time");
 
       log(ID_LOG_HDR, "A valid call afterwards still works", C_SCOPE);
       stimulate(pwm_wave(100 ns, 25 ns, 1) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "valid after invalid", pwm_obs, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "valid after invalid", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
     --============================================================================================================================
@@ -1303,50 +1288,42 @@ begin
       log(ID_LOG_HDR, "D = 0.25 +-0.01", C_SCOPE);
       v_config.duty_tolerance := 0.01;
       stimulate(pwm_wave(100 ns, 25 ns, 3) & seg('1', 25 ns));
-      pwm_check(0.25, "25/100 ns", pwm_obs, 3, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(0.25, "25/100 ns", pwm_obs, terminate_loop, 3, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(300 ns, "25/100 ns, k=3");
       await_stimulus;
       stimulate(pwm_wave(1 us, 250 ns, 3) & seg('1', 25 ns));
-      pwm_check(0.25, "250 ns/1 us", pwm_obs, 3, 5 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(0.25, "250 ns/1 us", pwm_obs, terminate_loop, 3, 5 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
       stimulate(pwm_wave(100 ns, 26 ns, 1) & seg('1', 25 ns));
-      pwm_check(0.25, "26/100 ns: deviation equal to the tolerance", pwm_obs, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(0.25, "26/100 ns: deviation equal to the tolerance", pwm_obs, terminate_loop, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
       stimulate(pwm_wave(100 ns, 24 ns, 1) & seg('1', 25 ns));
-      pwm_check(0.25, "24/100 ns: deviation equal to the tolerance", pwm_obs, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(0.25, "24/100 ns: deviation equal to the tolerance", pwm_obs, terminate_loop, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
       increment_expected_alerts_and_stop_limit(ERROR, 1, "27/100 ns");
       stimulate(pwm_wave(100 ns, 27 ns, 1) & seg('1', 25 ns));
-      pwm_check(0.25, "27/100 ns", pwm_obs, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(0.25, "27/100 ns", pwm_obs, terminate_loop, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
       increment_expected_alerts_and_stop_limit(ERROR, 1, "24 ns - 1 unit");
       stimulate(pwm_wave(100 ns, 24 ns - C_RESOLUTION, 1) & seg('1', 25 ns));
-      pwm_check(0.25, "24 ns - 1 unit", pwm_obs, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(0.25, "24 ns - 1 unit", pwm_obs, terminate_loop, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
       increment_expected_alerts(WARNING, 1, "27/100 ns in period 2/3, WARNING");
       stimulate(pwm_wave(100 ns, 25 ns, 1) & pwm_wave(100 ns, 27 ns, 1) & pwm_wave(100 ns, 25 ns, 1) & seg('1', 25 ns));
-      pwm_check(0.25, "period 2 wrong", pwm_obs, 3, 1 us, WARNING, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(0.25, "period 2 wrong", pwm_obs, terminate_loop, 3, 1 us, WARNING, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
-
-      log(ID_LOG_HDR, "Duty_rounding_margin 0.0: real rounding fails a deviation equal to the tolerance", C_SCOPE);
-      v_config.duty_rounding_margin := 0.0;
-      increment_expected_alerts_and_stop_limit(ERROR, 1, "26/100 ns without rounding margin");
-      stimulate(pwm_wave(100 ns, 26 ns, 1) & seg('1', 25 ns));
-      pwm_check(0.25, "26/100 ns, no rounding margin", pwm_obs, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
-      await_stimulus;
-      v_config.duty_rounding_margin := C_PWM_BFM_CONFIG_DEFAULT.duty_rounding_margin;
 
       log(ID_LOG_HDR, "Tolerance 0.0: exact duty passes", C_SCOPE);
       v_config.duty_tolerance := 0.0;
       stimulate(pwm_wave(100 ns, 25 ns, 1) & seg('1', 25 ns));
-      pwm_check(0.25, "exact", pwm_obs, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(0.25, "exact", pwm_obs, terminate_loop, 1, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
       log(ID_LOG_HDR, "Active-low", C_SCOPE);
       v_config.polarity := ACTIVE_LOW;
       set_line('1');
       stimulate(pwm_wave(100 ns, 25 ns, 2, '0') & seg('0', 25 ns), '1');
-      pwm_check(0.25, "active-low", pwm_obs, 2, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(0.25, "active-low", pwm_obs, terminate_loop, 2, 1 us, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
 
     --============================================================================================================================
@@ -1357,70 +1334,70 @@ begin
       v_config.timeout := 150 ns;
       increment_expected_alerts_and_stop_limit(ERROR, 1, "config.timeout 150 ns");
       stimulate(pwm_wave(100 ns, 25 ns, 2) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "config.timeout 150 ns", pwm_obs, 2, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "config.timeout 150 ns", pwm_obs, terminate_loop, 2, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(150 ns, "config.timeout 150 ns: ends at the timeout");
       await_stimulus;
       stimulate(pwm_wave(100 ns, 25 ns, 2) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "per-call 400 ns", pwm_obs, 2, 400 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "per-call 400 ns", pwm_obs, terminate_loop, 2, 400 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
       v_config.timeout := 400 ns;
       stimulate(pwm_wave(100 ns, 25 ns, 2) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "config.timeout 400 ns", pwm_obs, 2, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "config.timeout 400 ns", pwm_obs, terminate_loop, 2, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
       v_config.timeout := C_UNDEFINED_TIME;
 
       log(ID_LOG_HDR, "The timeout covers the whole check: k=10, T=100 ns, timeout 500 ns", C_SCOPE);
       increment_expected_alerts_and_stop_limit(ERROR, 1, "k=10 within 500 ns");
       stimulate(pwm_wave(100 ns, 25 ns, 10) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "k=10, timeout 500 ns", pwm_obs, 10, 500 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "k=10, timeout 500 ns", pwm_obs, terminate_loop, 10, 500 ns, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(500 ns, "k=10, timeout 500 ns");
       await_stimulus;
 
       log(ID_LOG_HDR, "Derived default (k + 2) * (T + period_tolerance): k=100 passes", C_SCOPE);
       stimulate(pwm_wave(1 us, 250 ns, 100) & seg('1', 250 ns));
-      pwm_check(1 us, 250 ns, "k=100, derived timeout", pwm_obs, 100, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(1 us, 250 ns, "k=100, derived timeout", pwm_obs, terminate_loop, 100, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(100 us, "k=100, derived timeout");
       await_stimulus;
       -- 50 periods of 105 ns take 5250 ns: more than (50 + 2) * 100 ns, within (50 + 2) * (100 ns + 5 ns)
       v_config.period_tolerance := 5 ns;
       stimulate(pwm_wave(105 ns, 25 ns, 50) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "k=50 of 105 ns, tolerance 5 ns", pwm_obs, 50, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "k=50 of 105 ns, tolerance 5 ns", pwm_obs, terminate_loop, 50, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       await_stimulus;
       set_line('0');
       increment_expected_alerts_and_stop_limit(ERROR, 1, "stuck, derived timeout with tolerance");
       v_start := now;
-      pwm_check(100 ns, 25 ns, "stuck, derived timeout", pwm_obs, 3, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "stuck, derived timeout", pwm_obs, terminate_loop, 3, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion((3 + 2) * 105 ns, "stuck, derived timeout (3 + 2) * (100 ns + 5 ns)");
       v_config.period_tolerance := 0 ns;
 
       log(ID_LOG_HDR, "Without a timeout (not set or 0 ns) pwm_measure() and pwm_check() wait without limit (10 us of constant level first)", C_SCOPE);
       stimulate(seg('0', 10 us) & pwm_wave(100 ns, 25 ns, 1) & seg('1', 25 ns));
-      pwm_measure(v_result, "no timeout", pwm_obs, 1, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "no timeout", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, C_SCOPE, shared_msg_id_panel, v_config);
       check_measurement(100 ns, 25 ns, "no timeout");
       check_completion(10.1 us, "no timeout");
       await_stimulus;
       stimulate(seg('0', 10 us) & pwm_wave(100 ns, 25 ns, 1) & seg('1', 25 ns));
-      pwm_measure(v_result, "timeout 0 ns", pwm_obs, 1, 0 ns, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "timeout 0 ns", pwm_obs, terminate_loop, 1, 0 ns, C_SCOPE, shared_msg_id_panel, v_config);
       check_measurement(100 ns, 25 ns, "timeout 0 ns");
       check_completion(10.1 us, "timeout 0 ns");
       await_stimulus;
       stimulate(seg('0', 10 us) & pwm_wave(100 ns, 25 ns, 1) & seg('1', 25 ns));
-      pwm_check(0.25, "duty, no timeout", pwm_obs, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(0.25, "duty, no timeout", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(10.1 us, "duty, no timeout");
       await_stimulus;
       v_config.timeout := 0 ns;
       stimulate(seg('0', 10 us) & pwm_wave(100 ns, 25 ns, 1) & seg('1', 25 ns));
-      pwm_check(100 ns, 25 ns, "config.timeout 0 ns", pwm_obs, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "config.timeout 0 ns", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       check_completion(10.1 us, "config.timeout 0 ns");
       await_stimulus;
       v_config.timeout := C_UNDEFINED_TIME;
 
       log(ID_LOG_HDR, "Negative timeout", C_SCOPE);
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "timeout -5 ns");
-      pwm_measure(v_result, "timeout -5 ns", pwm_obs, 1, -5 ns, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_measure(v_result, "timeout -5 ns", pwm_obs, terminate_loop, 1, -5 ns, C_SCOPE, shared_msg_id_panel, v_config);
       v_config.timeout := -5 ns;
       increment_expected_alerts_and_stop_limit(TB_ERROR, 1, "config.timeout -5 ns");
-      pwm_check(100 ns, 25 ns, "config.timeout -5 ns", pwm_obs, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
+      pwm_check(100 ns, 25 ns, "config.timeout -5 ns", pwm_obs, terminate_loop, 1, C_UNDEFINED_TIME, ERROR, C_SCOPE, shared_msg_id_panel, v_config);
       v_config.timeout := C_UNDEFINED_TIME;
 
     else
